@@ -1,0 +1,13 @@
+.markdown-prosemirror kbd {
+	background: var(--md-muted);
+	border: 1px solid var(--md-border);
+	border-bottom-width: 2px;
+	border-radius: 3px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 0.85em;
+	padding: 0.1em 0.4em;
+}
+
+.markdown-prosemirror kbd kbd {
+	font-size: inherit;
+}

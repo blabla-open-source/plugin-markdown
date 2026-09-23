@@ -1,0 +1,28 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.1/schema.json",
+	"files": {
+		"includes": [
+			"src/**",
+			"!src/components/tiptap-icons",
+			"!src/components/tiptap-node",
+			"!src/components/tiptap-ui",
+			"!src/components/tiptap-ui-primitive",
+			"!src/hooks",
+			"!src/lib",
+			"!src/styles",
+			"scripts/**",
+			"biome.jsonc",
+			"package.json",
+			"tsconfig.json",
+			"vite.config.ts"
+		]
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"correctness": {
+				"useExhaustiveDependencies": "off"
+			}
+		}
+	}
+}

@@ -1,0 +1,100 @@
+.tiptap.ProseMirror blockquote[data-alert] {
+	border-left: 4px solid var(--alert-color);
+	padding: 0.5rem 1rem;
+	color: inherit;
+	font-style: normal;
+}
+.tiptap.ProseMirror blockquote[data-alert]::before {
+	display: none;
+}
+.tiptap blockquote[data-alert="note"] {
+	--alert-color: #0969da;
+}
+.tiptap blockquote[data-alert="tip"] {
+	--alert-color: #1a7f37;
+}
+.tiptap blockquote[data-alert="important"] {
+	--alert-color: #8250df;
+}
+.tiptap blockquote[data-alert="warning"] {
+	--alert-color: #9a6700;
+}
+.tiptap blockquote[data-alert="caution"] {
+	--alert-color: #cf222e;
+}
+.dark .tiptap blockquote[data-alert="note"] {
+	--alert-color: #58a6ff;
+}
+.dark .tiptap blockquote[data-alert="tip"] {
+	--alert-color: #3fb950;
+}
+.dark .tiptap blockquote[data-alert="important"] {
+	--alert-color: #bc8cff;
+}
+.dark .tiptap blockquote[data-alert="warning"] {
+	--alert-color: #d29922;
+}
+.dark .tiptap blockquote[data-alert="caution"] {
+	--alert-color: #f85149;
+}
+/* A leading noneditable title must remain in the inline selection flow. */
+.tiptap [data-alert-title] {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	color: var(--alert-color);
+	font-weight: 600;
+	line-height: 1.5;
+}
+.tiptap [data-alert-title] select,
+.tiptap [data-alert-title] button,
+.tiptap [data-alert-title] input {
+	font: inherit;
+	color: inherit;
+	background: transparent;
+	border: 0;
+	padding: 0;
+	cursor: pointer;
+}
+.tiptap [data-alert-title] select:focus-visible,
+.tiptap [data-alert-title] button:focus-visible,
+.tiptap [data-alert-title] input:focus-visible {
+	outline: 2px solid var(--alert-color);
+	outline-offset: 2px;
+	border-radius: 2px;
+}
+.tiptap [data-alert-title] input {
+	color: var(--md-foreground);
+	max-width: 100%;
+	cursor: text;
+}
+.tiptap [data-alert-title] button {
+	color: var(--md-foreground);
+	font-size: 0.8em;
+	font-weight: 400;
+	opacity: 0;
+}
+.tiptap [data-alert]:is(:hover, :focus-within) [data-alert-title] button {
+	opacity: 0.65;
+}
+.tiptap [data-alert] [data-alert-title] button:is(:hover, :focus-visible) {
+	opacity: 1;
+}
+.tiptap [data-alert-title]:has(input:not([hidden])) :is(select, button) {
+	display: none;
+}
+.tiptap [data-alert-body] > :first-child {
+	margin-top: 0.5rem;
+}
+.tiptap [data-alert-block="true"] > [data-alert-body] > :first-child {
+	margin-top: 1.25rem;
+}
+.tiptap [data-alert-body] > :last-child {
+	margin-bottom: 0;
+}
+
+@media (hover: none) {
+	.tiptap [data-alert-title] button {
+		opacity: 1;
+	}
+}

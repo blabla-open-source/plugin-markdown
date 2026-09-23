@@ -1,0 +1,851 @@
+diff --git a/node_modules/@tiptap/extension-list/dist/index.cjs b/node_modules/@tiptap/extension-list/dist/index.cjs
+index 283575c..57ea7fe 100644
+--- a/node_modules/@tiptap/extension-list/dist/index.cjs
++++ b/node_modules/@tiptap/extension-list/dist/index.cjs
+@@ -817,6 +817,7 @@ function collectOrderedListItems(lines) {
+ 	const listItems = [];
+ 	let currentLineIndex = 0;
+ 	let consumed = 0;
++ let sourceOffset = 0;
+ 	while (currentLineIndex < lines.length) {
+ 		const line = lines[currentLineIndex];
+ 		const match = line.match(ORDERED_LIST_ITEM_REGEX);
+@@ -851,7 +852,8 @@ function collectOrderedListItems(lines) {
+ 				nextLineIndex += 1;
+ 			}
+ 		}
+-		listItems.push({
++		const sourceTo = sourceOffset + itemLines.join("\n").length;
++ listItems.push({sourceFrom: sourceOffset, sourceTo,
+ 			indent: indentLevel,
+ 			number: itemNumber,
+ 			type: markerType,
+@@ -859,7 +861,8 @@ function collectOrderedListItems(lines) {
+ 			contentLines: itemContentLines,
+ 			raw: itemLines.join("\n")
+ 		});
+-		consumed = nextLineIndex;
++		sourceOffset = sourceTo + 1;
++ consumed = nextLineIndex;
+ 		currentLineIndex = nextLineIndex;
+ 	}
+ 	return [listItems, consumed];
+@@ -945,6 +948,7 @@ function buildNestedStructure(items, baseIndent, lexer) {
+ 			result.push({
+ 				type: "list_item",
+ 				raw: item.raw,
++ sourceRange: {from: item.sourceFrom, to: items[lookAheadIndex - 1].sourceTo},
+ 				tokens
+ 			});
+ 			currentIndex = lookAheadIndex;
+@@ -1403,22 +1407,23 @@ const TaskList = _tiptap_core.Node.create({
+ 			return index !== void 0 ? index : -1;
+ 		},
+ 		tokenize(src, tokens, lexer) {
+-			const parseTaskListContent = (content) => {
++			const parseTaskListContent = (content, lexer) => {
+ 				const nestedResult = (0, _tiptap_core.parseIndentedBlocks)(content, {
+ 					itemPattern: /^(\s*)([-+*])\s+\[([ xX])\]\s+(.*)$/,
+ 					extractItemData: (match) => ({
+ 						indentLevel: match[1].length,
+ 						mainContent: match[4],
++              mainOffset: match[0].length - match[4].length,
+ 						checked: match[3].toLowerCase() === "x"
+ 					}),
+-					createToken: (data, nestedTokens) => ({
++					createToken: (data, nestedTokens, sourceStart = 0) => ({
+ 						type: "taskItem",
+ 						raw: "",
+ 						mainContent: data.mainContent,
+ 						indentLevel: data.indentLevel,
+ 						checked: data.checked,
+ 						text: data.mainContent,
+-						tokens: lexer.inlineTokens(data.mainContent),
++						tokens: lexer.inlineTokens(data.mainContent, {from: sourceStart + data.mainOffset, to: sourceStart + data.mainOffset + data.mainContent.length}),
+ 						nestedTokens
+ 					}),
+ 					customNestedParser: parseTaskListContent
+@@ -1427,29 +1432,31 @@ const TaskList = _tiptap_core.Node.create({
+ 					const taskListToken = {
+ 						type: "taskList",
+ 						raw: nestedResult.raw,
++              sourceRange: { from: nestedResult.sourceStart, to: nestedResult.raw.length },
+ 						items: nestedResult.items
+ 					};
+ 					const remainder = content.slice(nestedResult.raw.length);
+-					if (remainder.trim()) return [taskListToken, ...lexer.blockTokens(remainder)];
++					if (remainder.trim()) return [taskListToken, ...lexer.blockTokens(remainder, {from: nestedResult.raw.length, to: content.length})];
+ 					return [taskListToken];
+ 				}
+-				return lexer.blockTokens(content);
++				return lexer.blockTokens(content, {from: 0, to: content.length});
+ 			};
+ 			const result = (0, _tiptap_core.parseIndentedBlocks)(src, {
+ 				itemPattern: /^(\s*)([-+*])\s+\[([ xX])\]\s+(.*)$/,
+ 				extractItemData: (match) => ({
+ 					indentLevel: match[1].length,
+ 					mainContent: match[4],
++              mainOffset: match[0].length - match[4].length,
+ 					checked: match[3].toLowerCase() === "x"
+ 				}),
+-				createToken: (data, nestedTokens) => ({
++				createToken: (data, nestedTokens, sourceStart = 0) => ({
+ 					type: "taskItem",
+ 					raw: "",
+ 					mainContent: data.mainContent,
+ 					indentLevel: data.indentLevel,
+ 					checked: data.checked,
+ 					text: data.mainContent,
+-					tokens: lexer.inlineTokens(data.mainContent),
++					tokens: lexer.inlineTokens(data.mainContent, {from: sourceStart + data.mainOffset, to: sourceStart + data.mainOffset + data.mainContent.length}),
+ 					nestedTokens
+ 				}),
+ 				customNestedParser: parseTaskListContent
+@@ -1458,6 +1465,7 @@ const TaskList = _tiptap_core.Node.create({
+ 			return {
+ 				type: "taskList",
+ 				raw: result.raw,
++              sourceRange: { from: result.sourceStart, to: result.raw.length },
+ 				items: result.items
+ 			};
+ 		}
+@@ -1519,5 +1527,3 @@ exports.parseListMarker = parseListMarker;
+ exports.parsePlainTextOrderedListPaste = parsePlainTextOrderedListPaste;
+ exports.toRoman = toRoman;
+ exports.toRomanUpper = toRomanUpper;
+-
+-//# sourceMappingURL=index.cjs.map
+\ No newline at end of file
+diff --git a/node_modules/@tiptap/extension-list/dist/index.js b/node_modules/@tiptap/extension-list/dist/index.js
+index 1fa29e7..03b87a0 100644
+--- a/node_modules/@tiptap/extension-list/dist/index.js
++++ b/node_modules/@tiptap/extension-list/dist/index.js
+@@ -805,6 +805,7 @@ function collectOrderedListItems(lines) {
+ 	const listItems = [];
+ 	let currentLineIndex = 0;
+ 	let consumed = 0;
++ let sourceOffset = 0;
+ 	while (currentLineIndex < lines.length) {
+ 		const line = lines[currentLineIndex];
+ 		const match = line.match(ORDERED_LIST_ITEM_REGEX);
+@@ -839,7 +840,8 @@ function collectOrderedListItems(lines) {
+ 				nextLineIndex += 1;
+ 			}
+ 		}
+-		listItems.push({
++		const sourceTo = sourceOffset + itemLines.join("\n").length;
++ listItems.push({sourceFrom: sourceOffset, sourceTo,
+ 			indent: indentLevel,
+ 			number: itemNumber,
+ 			type: markerType,
+@@ -847,7 +849,8 @@ function collectOrderedListItems(lines) {
+ 			contentLines: itemContentLines,
+ 			raw: itemLines.join("\n")
+ 		});
+-		consumed = nextLineIndex;
++		sourceOffset = sourceTo + 1;
++ consumed = nextLineIndex;
+ 		currentLineIndex = nextLineIndex;
+ 	}
+ 	return [listItems, consumed];
+@@ -933,6 +936,7 @@ function buildNestedStructure(items, baseIndent, lexer) {
+ 			result.push({
+ 				type: "list_item",
+ 				raw: item.raw,
++ sourceRange: {from: item.sourceFrom, to: items[lookAheadIndex - 1].sourceTo},
+ 				tokens
+ 			});
+ 			currentIndex = lookAheadIndex;
+@@ -1391,22 +1395,23 @@ const TaskList = Node.create({
+ 			return index !== void 0 ? index : -1;
+ 		},
+ 		tokenize(src, tokens, lexer) {
+-			const parseTaskListContent = (content) => {
++			const parseTaskListContent = (content, lexer) => {
+ 				const nestedResult = parseIndentedBlocks(content, {
+ 					itemPattern: /^(\s*)([-+*])\s+\[([ xX])\]\s+(.*)$/,
+ 					extractItemData: (match) => ({
+ 						indentLevel: match[1].length,
+ 						mainContent: match[4],
++              mainOffset: match[0].length - match[4].length,
+ 						checked: match[3].toLowerCase() === "x"
+ 					}),
+-					createToken: (data, nestedTokens) => ({
++					createToken: (data, nestedTokens, sourceStart = 0) => ({
+ 						type: "taskItem",
+ 						raw: "",
+ 						mainContent: data.mainContent,
+ 						indentLevel: data.indentLevel,
+ 						checked: data.checked,
+ 						text: data.mainContent,
+-						tokens: lexer.inlineTokens(data.mainContent),
++						tokens: lexer.inlineTokens(data.mainContent, {from: sourceStart + data.mainOffset, to: sourceStart + data.mainOffset + data.mainContent.length}),
+ 						nestedTokens
+ 					}),
+ 					customNestedParser: parseTaskListContent
+@@ -1415,29 +1420,31 @@ const TaskList = Node.create({
+ 					const taskListToken = {
+ 						type: "taskList",
+ 						raw: nestedResult.raw,
++              sourceRange: { from: nestedResult.sourceStart, to: nestedResult.raw.length },
+ 						items: nestedResult.items
+ 					};
+ 					const remainder = content.slice(nestedResult.raw.length);
+-					if (remainder.trim()) return [taskListToken, ...lexer.blockTokens(remainder)];
++					if (remainder.trim()) return [taskListToken, ...lexer.blockTokens(remainder, {from: nestedResult.raw.length, to: content.length})];
+ 					return [taskListToken];
+ 				}
+-				return lexer.blockTokens(content);
++				return lexer.blockTokens(content, {from: 0, to: content.length});
+ 			};
+ 			const result = parseIndentedBlocks(src, {
+ 				itemPattern: /^(\s*)([-+*])\s+\[([ xX])\]\s+(.*)$/,
+ 				extractItemData: (match) => ({
+ 					indentLevel: match[1].length,
+ 					mainContent: match[4],
++              mainOffset: match[0].length - match[4].length,
+ 					checked: match[3].toLowerCase() === "x"
+ 				}),
+-				createToken: (data, nestedTokens) => ({
++				createToken: (data, nestedTokens, sourceStart = 0) => ({
+ 					type: "taskItem",
+ 					raw: "",
+ 					mainContent: data.mainContent,
+ 					indentLevel: data.indentLevel,
+ 					checked: data.checked,
+ 					text: data.mainContent,
+-					tokens: lexer.inlineTokens(data.mainContent),
++					tokens: lexer.inlineTokens(data.mainContent, {from: sourceStart + data.mainOffset, to: sourceStart + data.mainOffset + data.mainContent.length}),
+ 					nestedTokens
+ 				}),
+ 				customNestedParser: parseTaskListContent
+@@ -1446,6 +1453,7 @@ const TaskList = Node.create({
+ 			return {
+ 				type: "taskList",
+ 				raw: result.raw,
++              sourceRange: { from: result.sourceStart, to: result.raw.length },
+ 				items: result.items
+ 			};
+ 		}
+@@ -1482,5 +1490,3 @@ const ListKit = Extension.create({
+ });
+ //#endregion
+ export { BulletList, ListItem, ListKeymap, ListKit, ORDERED_LIST_MARKER_PATTERN, OrderedList, TaskItem, TaskList, areOrderedListMarkersSequential, buildOrderedListAttrsFromMarker, bulletListInputRegex, detectMarkerType, getListMarker, inputRegex, listHelpers_exports as listHelpers, markerToStart, orderedListInputRegex, parseListMarker, parsePlainTextOrderedListPaste, toRoman, toRomanUpper };
+-
+-//# sourceMappingURL=index.js.map
+\ No newline at end of file
+diff --git a/node_modules/@tiptap/extension-list/dist/kit/index.cjs b/node_modules/@tiptap/extension-list/dist/kit/index.cjs
+index a1f217b..ef62e65 100644
+--- a/node_modules/@tiptap/extension-list/dist/kit/index.cjs
++++ b/node_modules/@tiptap/extension-list/dist/kit/index.cjs
+@@ -759,6 +759,7 @@ function collectOrderedListItems(lines) {
+ 	const listItems = [];
+ 	let currentLineIndex = 0;
+ 	let consumed = 0;
++ let sourceOffset = 0;
+ 	while (currentLineIndex < lines.length) {
+ 		const line = lines[currentLineIndex];
+ 		const match = line.match(ORDERED_LIST_ITEM_REGEX);
+@@ -793,7 +794,8 @@ function collectOrderedListItems(lines) {
+ 				nextLineIndex += 1;
+ 			}
+ 		}
+-		listItems.push({
++		const sourceTo = sourceOffset + itemLines.join("\n").length;
++ listItems.push({sourceFrom: sourceOffset, sourceTo,
+ 			indent: indentLevel,
+ 			number: itemNumber,
+ 			type: markerType,
+@@ -801,7 +803,8 @@ function collectOrderedListItems(lines) {
+ 			contentLines: itemContentLines,
+ 			raw: itemLines.join("\n")
+ 		});
+-		consumed = nextLineIndex;
++		sourceOffset = sourceTo + 1;
++ consumed = nextLineIndex;
+ 		currentLineIndex = nextLineIndex;
+ 	}
+ 	return [listItems, consumed];
+@@ -887,6 +890,7 @@ function buildNestedStructure(items, baseIndent, lexer) {
+ 			result.push({
+ 				type: "list_item",
+ 				raw: item.raw,
++ sourceRange: {from: item.sourceFrom, to: items[lookAheadIndex - 1].sourceTo},
+ 				tokens
+ 			});
+ 			currentIndex = lookAheadIndex;
+@@ -1345,22 +1349,23 @@ const TaskList = _tiptap_core.Node.create({
+ 			return index !== void 0 ? index : -1;
+ 		},
+ 		tokenize(src, tokens, lexer) {
+-			const parseTaskListContent = (content) => {
++			const parseTaskListContent = (content, lexer) => {
+ 				const nestedResult = (0, _tiptap_core.parseIndentedBlocks)(content, {
+ 					itemPattern: /^(\s*)([-+*])\s+\[([ xX])\]\s+(.*)$/,
+ 					extractItemData: (match) => ({
+ 						indentLevel: match[1].length,
+ 						mainContent: match[4],
++              mainOffset: match[0].length - match[4].length,
+ 						checked: match[3].toLowerCase() === "x"
+ 					}),
+-					createToken: (data, nestedTokens) => ({
++					createToken: (data, nestedTokens, sourceStart = 0) => ({
+ 						type: "taskItem",
+ 						raw: "",
+ 						mainContent: data.mainContent,
+ 						indentLevel: data.indentLevel,
+ 						checked: data.checked,
+ 						text: data.mainContent,
+-						tokens: lexer.inlineTokens(data.mainContent),
++						tokens: lexer.inlineTokens(data.mainContent, {from: sourceStart + data.mainOffset, to: sourceStart + data.mainOffset + data.mainContent.length}),
+ 						nestedTokens
+ 					}),
+ 					customNestedParser: parseTaskListContent
+@@ -1369,29 +1374,31 @@ const TaskList = _tiptap_core.Node.create({
+ 					const taskListToken = {
+ 						type: "taskList",
+ 						raw: nestedResult.raw,
++              sourceRange: { from: nestedResult.sourceStart, to: nestedResult.raw.length },
+ 						items: nestedResult.items
+ 					};
+ 					const remainder = content.slice(nestedResult.raw.length);
+-					if (remainder.trim()) return [taskListToken, ...lexer.blockTokens(remainder)];
++					if (remainder.trim()) return [taskListToken, ...lexer.blockTokens(remainder, {from: nestedResult.raw.length, to: content.length})];
+ 					return [taskListToken];
+ 				}
+-				return lexer.blockTokens(content);
++				return lexer.blockTokens(content, {from: 0, to: content.length});
+ 			};
+ 			const result = (0, _tiptap_core.parseIndentedBlocks)(src, {
+ 				itemPattern: /^(\s*)([-+*])\s+\[([ xX])\]\s+(.*)$/,
+ 				extractItemData: (match) => ({
+ 					indentLevel: match[1].length,
+ 					mainContent: match[4],
++              mainOffset: match[0].length - match[4].length,
+ 					checked: match[3].toLowerCase() === "x"
+ 				}),
+-				createToken: (data, nestedTokens) => ({
++				createToken: (data, nestedTokens, sourceStart = 0) => ({
+ 					type: "taskItem",
+ 					raw: "",
+ 					mainContent: data.mainContent,
+ 					indentLevel: data.indentLevel,
+ 					checked: data.checked,
+ 					text: data.mainContent,
+-					tokens: lexer.inlineTokens(data.mainContent),
++					tokens: lexer.inlineTokens(data.mainContent, {from: sourceStart + data.mainOffset, to: sourceStart + data.mainOffset + data.mainContent.length}),
+ 					nestedTokens
+ 				}),
+ 				customNestedParser: parseTaskListContent
+@@ -1400,6 +1407,7 @@ const TaskList = _tiptap_core.Node.create({
+ 			return {
+ 				type: "taskList",
+ 				raw: result.raw,
++              sourceRange: { from: result.sourceStart, to: result.raw.length },
+ 				items: result.items
+ 			};
+ 		}
+@@ -1436,5 +1444,3 @@ const ListKit = _tiptap_core.Extension.create({
+ });
+ //#endregion
+ exports.ListKit = ListKit;
+-
+-//# sourceMappingURL=index.cjs.map
+\ No newline at end of file
+diff --git a/node_modules/@tiptap/extension-list/dist/kit/index.js b/node_modules/@tiptap/extension-list/dist/kit/index.js
+index ee2b2a9..1b920a0 100644
+--- a/node_modules/@tiptap/extension-list/dist/kit/index.js
++++ b/node_modules/@tiptap/extension-list/dist/kit/index.js
+@@ -758,6 +758,7 @@ function collectOrderedListItems(lines) {
+ 	const listItems = [];
+ 	let currentLineIndex = 0;
+ 	let consumed = 0;
++ let sourceOffset = 0;
+ 	while (currentLineIndex < lines.length) {
+ 		const line = lines[currentLineIndex];
+ 		const match = line.match(ORDERED_LIST_ITEM_REGEX);
+@@ -792,7 +793,8 @@ function collectOrderedListItems(lines) {
+ 				nextLineIndex += 1;
+ 			}
+ 		}
+-		listItems.push({
++		const sourceTo = sourceOffset + itemLines.join("\n").length;
++ listItems.push({sourceFrom: sourceOffset, sourceTo,
+ 			indent: indentLevel,
+ 			number: itemNumber,
+ 			type: markerType,
+@@ -800,7 +802,8 @@ function collectOrderedListItems(lines) {
+ 			contentLines: itemContentLines,
+ 			raw: itemLines.join("\n")
+ 		});
+-		consumed = nextLineIndex;
++		sourceOffset = sourceTo + 1;
++ consumed = nextLineIndex;
+ 		currentLineIndex = nextLineIndex;
+ 	}
+ 	return [listItems, consumed];
+@@ -886,6 +889,7 @@ function buildNestedStructure(items, baseIndent, lexer) {
+ 			result.push({
+ 				type: "list_item",
+ 				raw: item.raw,
++ sourceRange: {from: item.sourceFrom, to: items[lookAheadIndex - 1].sourceTo},
+ 				tokens
+ 			});
+ 			currentIndex = lookAheadIndex;
+@@ -1344,22 +1348,23 @@ const TaskList = Node.create({
+ 			return index !== void 0 ? index : -1;
+ 		},
+ 		tokenize(src, tokens, lexer) {
+-			const parseTaskListContent = (content) => {
++			const parseTaskListContent = (content, lexer) => {
+ 				const nestedResult = parseIndentedBlocks(content, {
+ 					itemPattern: /^(\s*)([-+*])\s+\[([ xX])\]\s+(.*)$/,
+ 					extractItemData: (match) => ({
+ 						indentLevel: match[1].length,
+ 						mainContent: match[4],
++              mainOffset: match[0].length - match[4].length,
+ 						checked: match[3].toLowerCase() === "x"
+ 					}),
+-					createToken: (data, nestedTokens) => ({
++					createToken: (data, nestedTokens, sourceStart = 0) => ({
+ 						type: "taskItem",
+ 						raw: "",
+ 						mainContent: data.mainContent,
+ 						indentLevel: data.indentLevel,
+ 						checked: data.checked,
+ 						text: data.mainContent,
+-						tokens: lexer.inlineTokens(data.mainContent),
++						tokens: lexer.inlineTokens(data.mainContent, {from: sourceStart + data.mainOffset, to: sourceStart + data.mainOffset + data.mainContent.length}),
+ 						nestedTokens
+ 					}),
+ 					customNestedParser: parseTaskListContent
+@@ -1368,29 +1373,31 @@ const TaskList = Node.create({
+ 					const taskListToken = {
+ 						type: "taskList",
+ 						raw: nestedResult.raw,
++              sourceRange: { from: nestedResult.sourceStart, to: nestedResult.raw.length },
+ 						items: nestedResult.items
+ 					};
+ 					const remainder = content.slice(nestedResult.raw.length);
+-					if (remainder.trim()) return [taskListToken, ...lexer.blockTokens(remainder)];
++					if (remainder.trim()) return [taskListToken, ...lexer.blockTokens(remainder, {from: nestedResult.raw.length, to: content.length})];
+ 					return [taskListToken];
+ 				}
+-				return lexer.blockTokens(content);
++				return lexer.blockTokens(content, {from: 0, to: content.length});
+ 			};
+ 			const result = parseIndentedBlocks(src, {
+ 				itemPattern: /^(\s*)([-+*])\s+\[([ xX])\]\s+(.*)$/,
+ 				extractItemData: (match) => ({
+ 					indentLevel: match[1].length,
+ 					mainContent: match[4],
++              mainOffset: match[0].length - match[4].length,
+ 					checked: match[3].toLowerCase() === "x"
+ 				}),
+-				createToken: (data, nestedTokens) => ({
++				createToken: (data, nestedTokens, sourceStart = 0) => ({
+ 					type: "taskItem",
+ 					raw: "",
+ 					mainContent: data.mainContent,
+ 					indentLevel: data.indentLevel,
+ 					checked: data.checked,
+ 					text: data.mainContent,
+-					tokens: lexer.inlineTokens(data.mainContent),
++					tokens: lexer.inlineTokens(data.mainContent, {from: sourceStart + data.mainOffset, to: sourceStart + data.mainOffset + data.mainContent.length}),
+ 					nestedTokens
+ 				}),
+ 				customNestedParser: parseTaskListContent
+@@ -1399,6 +1406,7 @@ const TaskList = Node.create({
+ 			return {
+ 				type: "taskList",
+ 				raw: result.raw,
++              sourceRange: { from: result.sourceStart, to: result.raw.length },
+ 				items: result.items
+ 			};
+ 		}
+@@ -1435,5 +1443,3 @@ const ListKit = Extension.create({
+ });
+ //#endregion
+ export { ListKit };
+-
+-//# sourceMappingURL=index.js.map
+\ No newline at end of file
+diff --git a/node_modules/@tiptap/extension-list/dist/ordered-list/index.cjs b/node_modules/@tiptap/extension-list/dist/ordered-list/index.cjs
+index 9373d83..1fe9fa6 100644
+--- a/node_modules/@tiptap/extension-list/dist/ordered-list/index.cjs
++++ b/node_modules/@tiptap/extension-list/dist/ordered-list/index.cjs
+@@ -253,6 +253,7 @@ function collectOrderedListItems(lines) {
+ 	const listItems = [];
+ 	let currentLineIndex = 0;
+ 	let consumed = 0;
++ let sourceOffset = 0;
+ 	while (currentLineIndex < lines.length) {
+ 		const line = lines[currentLineIndex];
+ 		const match = line.match(ORDERED_LIST_ITEM_REGEX);
+@@ -287,7 +288,8 @@ function collectOrderedListItems(lines) {
+ 				nextLineIndex += 1;
+ 			}
+ 		}
+-		listItems.push({
++		const sourceTo = sourceOffset + itemLines.join("\n").length;
++ listItems.push({sourceFrom: sourceOffset, sourceTo,
+ 			indent: indentLevel,
+ 			number: itemNumber,
+ 			type: markerType,
+@@ -295,7 +297,8 @@ function collectOrderedListItems(lines) {
+ 			contentLines: itemContentLines,
+ 			raw: itemLines.join("\n")
+ 		});
+-		consumed = nextLineIndex;
++		sourceOffset = sourceTo + 1;
++ consumed = nextLineIndex;
+ 		currentLineIndex = nextLineIndex;
+ 	}
+ 	return [listItems, consumed];
+@@ -381,6 +384,7 @@ function buildNestedStructure(items, baseIndent, lexer) {
+ 			result.push({
+ 				type: "list_item",
+ 				raw: item.raw,
++ sourceRange: {from: item.sourceFrom, to: items[lookAheadIndex - 1].sourceTo},
+ 				tokens
+ 			});
+ 			currentIndex = lookAheadIndex;
+diff --git a/node_modules/@tiptap/extension-list/dist/ordered-list/index.js b/node_modules/@tiptap/extension-list/dist/ordered-list/index.js
+index ace7326..71ff228 100644
+--- a/node_modules/@tiptap/extension-list/dist/ordered-list/index.js
++++ b/node_modules/@tiptap/extension-list/dist/ordered-list/index.js
+@@ -252,6 +252,7 @@ function collectOrderedListItems(lines) {
+ 	const listItems = [];
+ 	let currentLineIndex = 0;
+ 	let consumed = 0;
++ let sourceOffset = 0;
+ 	while (currentLineIndex < lines.length) {
+ 		const line = lines[currentLineIndex];
+ 		const match = line.match(ORDERED_LIST_ITEM_REGEX);
+@@ -286,7 +287,8 @@ function collectOrderedListItems(lines) {
+ 				nextLineIndex += 1;
+ 			}
+ 		}
+-		listItems.push({
++		const sourceTo = sourceOffset + itemLines.join("\n").length;
++ listItems.push({sourceFrom: sourceOffset, sourceTo,
+ 			indent: indentLevel,
+ 			number: itemNumber,
+ 			type: markerType,
+@@ -294,7 +296,8 @@ function collectOrderedListItems(lines) {
+ 			contentLines: itemContentLines,
+ 			raw: itemLines.join("\n")
+ 		});
+-		consumed = nextLineIndex;
++		sourceOffset = sourceTo + 1;
++ consumed = nextLineIndex;
+ 		currentLineIndex = nextLineIndex;
+ 	}
+ 	return [listItems, consumed];
+@@ -380,6 +383,7 @@ function buildNestedStructure(items, baseIndent, lexer) {
+ 			result.push({
+ 				type: "list_item",
+ 				raw: item.raw,
++ sourceRange: {from: item.sourceFrom, to: items[lookAheadIndex - 1].sourceTo},
+ 				tokens
+ 			});
+ 			currentIndex = lookAheadIndex;
+diff --git a/node_modules/@tiptap/extension-list/dist/task-list/index.cjs b/node_modules/@tiptap/extension-list/dist/task-list/index.cjs
+index 2fb689a..b60427e 100644
+--- a/node_modules/@tiptap/extension-list/dist/task-list/index.cjs
++++ b/node_modules/@tiptap/extension-list/dist/task-list/index.cjs
+@@ -46,22 +46,23 @@ const TaskList = _tiptap_core.Node.create({
+ 			return index !== void 0 ? index : -1;
+ 		},
+ 		tokenize(src, tokens, lexer) {
+-			const parseTaskListContent = (content) => {
++			const parseTaskListContent = (content, lexer) => {
+ 				const nestedResult = (0, _tiptap_core.parseIndentedBlocks)(content, {
+ 					itemPattern: /^(\s*)([-+*])\s+\[([ xX])\]\s+(.*)$/,
+ 					extractItemData: (match) => ({
+ 						indentLevel: match[1].length,
+ 						mainContent: match[4],
++              mainOffset: match[0].length - match[4].length,
+ 						checked: match[3].toLowerCase() === "x"
+ 					}),
+-					createToken: (data, nestedTokens) => ({
++					createToken: (data, nestedTokens, sourceStart = 0) => ({
+ 						type: "taskItem",
+ 						raw: "",
+ 						mainContent: data.mainContent,
+ 						indentLevel: data.indentLevel,
+ 						checked: data.checked,
+ 						text: data.mainContent,
+-						tokens: lexer.inlineTokens(data.mainContent),
++						tokens: lexer.inlineTokens(data.mainContent, {from: sourceStart + data.mainOffset, to: sourceStart + data.mainOffset + data.mainContent.length}),
+ 						nestedTokens
+ 					}),
+ 					customNestedParser: parseTaskListContent
+@@ -70,29 +71,31 @@ const TaskList = _tiptap_core.Node.create({
+ 					const taskListToken = {
+ 						type: "taskList",
+ 						raw: nestedResult.raw,
++              sourceRange: { from: nestedResult.sourceStart, to: nestedResult.raw.length },
+ 						items: nestedResult.items
+ 					};
+ 					const remainder = content.slice(nestedResult.raw.length);
+-					if (remainder.trim()) return [taskListToken, ...lexer.blockTokens(remainder)];
++					if (remainder.trim()) return [taskListToken, ...lexer.blockTokens(remainder, {from: nestedResult.raw.length, to: content.length})];
+ 					return [taskListToken];
+ 				}
+-				return lexer.blockTokens(content);
++				return lexer.blockTokens(content, {from: 0, to: content.length});
+ 			};
+ 			const result = (0, _tiptap_core.parseIndentedBlocks)(src, {
+ 				itemPattern: /^(\s*)([-+*])\s+\[([ xX])\]\s+(.*)$/,
+ 				extractItemData: (match) => ({
+ 					indentLevel: match[1].length,
+ 					mainContent: match[4],
++              mainOffset: match[0].length - match[4].length,
+ 					checked: match[3].toLowerCase() === "x"
+ 				}),
+-				createToken: (data, nestedTokens) => ({
++				createToken: (data, nestedTokens, sourceStart = 0) => ({
+ 					type: "taskItem",
+ 					raw: "",
+ 					mainContent: data.mainContent,
+ 					indentLevel: data.indentLevel,
+ 					checked: data.checked,
+ 					text: data.mainContent,
+-					tokens: lexer.inlineTokens(data.mainContent),
++					tokens: lexer.inlineTokens(data.mainContent, {from: sourceStart + data.mainOffset, to: sourceStart + data.mainOffset + data.mainContent.length}),
+ 					nestedTokens
+ 				}),
+ 				customNestedParser: parseTaskListContent
+@@ -101,6 +104,7 @@ const TaskList = _tiptap_core.Node.create({
+ 			return {
+ 				type: "taskList",
+ 				raw: result.raw,
++              sourceRange: { from: result.sourceStart, to: result.raw.length },
+ 				items: result.items
+ 			};
+ 		}
+@@ -117,5 +121,3 @@ const TaskList = _tiptap_core.Node.create({
+ });
+ //#endregion
+ exports.TaskList = TaskList;
+-
+-//# sourceMappingURL=index.cjs.map
+\ No newline at end of file
+diff --git a/node_modules/@tiptap/extension-list/dist/task-list/index.js b/node_modules/@tiptap/extension-list/dist/task-list/index.js
+index 9533dd2..6d21535 100644
+--- a/node_modules/@tiptap/extension-list/dist/task-list/index.js
++++ b/node_modules/@tiptap/extension-list/dist/task-list/index.js
+@@ -45,22 +45,23 @@ const TaskList = Node.create({
+ 			return index !== void 0 ? index : -1;
+ 		},
+ 		tokenize(src, tokens, lexer) {
+-			const parseTaskListContent = (content) => {
++			const parseTaskListContent = (content, lexer) => {
+ 				const nestedResult = parseIndentedBlocks(content, {
+ 					itemPattern: /^(\s*)([-+*])\s+\[([ xX])\]\s+(.*)$/,
+ 					extractItemData: (match) => ({
+ 						indentLevel: match[1].length,
+ 						mainContent: match[4],
++              mainOffset: match[0].length - match[4].length,
+ 						checked: match[3].toLowerCase() === "x"
+ 					}),
+-					createToken: (data, nestedTokens) => ({
++					createToken: (data, nestedTokens, sourceStart = 0) => ({
+ 						type: "taskItem",
+ 						raw: "",
+ 						mainContent: data.mainContent,
+ 						indentLevel: data.indentLevel,
+ 						checked: data.checked,
+ 						text: data.mainContent,
+-						tokens: lexer.inlineTokens(data.mainContent),
++						tokens: lexer.inlineTokens(data.mainContent, {from: sourceStart + data.mainOffset, to: sourceStart + data.mainOffset + data.mainContent.length}),
+ 						nestedTokens
+ 					}),
+ 					customNestedParser: parseTaskListContent
+@@ -69,29 +70,31 @@ const TaskList = Node.create({
+ 					const taskListToken = {
+ 						type: "taskList",
+ 						raw: nestedResult.raw,
++              sourceRange: { from: nestedResult.sourceStart, to: nestedResult.raw.length },
+ 						items: nestedResult.items
+ 					};
+ 					const remainder = content.slice(nestedResult.raw.length);
+-					if (remainder.trim()) return [taskListToken, ...lexer.blockTokens(remainder)];
++					if (remainder.trim()) return [taskListToken, ...lexer.blockTokens(remainder, {from: nestedResult.raw.length, to: content.length})];
+ 					return [taskListToken];
+ 				}
+-				return lexer.blockTokens(content);
++				return lexer.blockTokens(content, {from: 0, to: content.length});
+ 			};
+ 			const result = parseIndentedBlocks(src, {
+ 				itemPattern: /^(\s*)([-+*])\s+\[([ xX])\]\s+(.*)$/,
+ 				extractItemData: (match) => ({
+ 					indentLevel: match[1].length,
+ 					mainContent: match[4],
++              mainOffset: match[0].length - match[4].length,
+ 					checked: match[3].toLowerCase() === "x"
+ 				}),
+-				createToken: (data, nestedTokens) => ({
++				createToken: (data, nestedTokens, sourceStart = 0) => ({
+ 					type: "taskItem",
+ 					raw: "",
+ 					mainContent: data.mainContent,
+ 					indentLevel: data.indentLevel,
+ 					checked: data.checked,
+ 					text: data.mainContent,
+-					tokens: lexer.inlineTokens(data.mainContent),
++					tokens: lexer.inlineTokens(data.mainContent, {from: sourceStart + data.mainOffset, to: sourceStart + data.mainOffset + data.mainContent.length}),
+ 					nestedTokens
+ 				}),
+ 				customNestedParser: parseTaskListContent
+@@ -100,6 +103,7 @@ const TaskList = Node.create({
+ 			return {
+ 				type: "taskList",
+ 				raw: result.raw,
++              sourceRange: { from: result.sourceStart, to: result.raw.length },
+ 				items: result.items
+ 			};
+ 		}
+@@ -116,5 +120,3 @@ const TaskList = Node.create({
+ });
+ //#endregion
+ export { TaskList };
+-
+-//# sourceMappingURL=index.js.map
+\ No newline at end of file
+diff --git a/node_modules/@tiptap/extension-list/src/ordered-list/utils.ts b/node_modules/@tiptap/extension-list/src/ordered-list/utils.ts
+index d0a3b84..b8801e1 100644
+--- a/node_modules/@tiptap/extension-list/src/ordered-list/utils.ts
++++ b/node_modules/@tiptap/extension-list/src/ordered-list/utils.ts
+@@ -48,6 +48,8 @@ const PARAGRAPH_INTERRUPTERS = {
+  * Represents a parsed ordered list item with indentation information
+  */
+ export interface OrderedListItem {
++  sourceFrom: number
++  sourceTo: number
+   indent: number
+   number: number
+   type?: string
+@@ -128,6 +130,7 @@ export function collectOrderedListItems(lines: string[]): [OrderedListItem[], nu
+   const listItems: OrderedListItem[] = []
+   let currentLineIndex = 0
+   let consumed = 0
++  let sourceOffset = 0
+ 
+   while (currentLineIndex < lines.length) {
+     const line = lines[currentLineIndex]
+@@ -186,7 +189,9 @@ export function collectOrderedListItems(lines: string[]): [OrderedListItem[], nu
+       }
+     }
+ 
++    const sourceTo = sourceOffset + itemLines.join("\n").length
+     listItems.push({
++      sourceFrom: sourceOffset, sourceTo,
+       indent: indentLevel,
+       number: itemNumber,
+       type: markerType,
+@@ -195,6 +200,7 @@ export function collectOrderedListItems(lines: string[]): [OrderedListItem[], nu
+       raw: itemLines.join('\n'),
+     })
+ 
++    sourceOffset = sourceTo + 1
+     consumed = nextLineIndex
+     currentLineIndex = nextLineIndex
+   }
+@@ -329,6 +335,7 @@ export function buildNestedStructure(
+       result.push({
+         type: 'list_item',
+         raw: item.raw,
++        sourceRange: {from: item.sourceFrom, to: items[lookAheadIndex - 1].sourceTo},
+         tokens,
+       })
+ 
+diff --git a/node_modules/@tiptap/extension-list/src/task-list/task-list.ts b/node_modules/@tiptap/extension-list/src/task-list/task-list.ts
+index 22302cc..0b90822 100644
+--- a/node_modules/@tiptap/extension-list/src/task-list/task-list.ts
++++ b/node_modules/@tiptap/extension-list/src/task-list/task-list.ts
+@@ -86,8 +86,9 @@ export const TaskList = Node.create<TaskListOptions>({
+       return index !== undefined ? index : -1
+     },
+     tokenize(src, tokens, lexer) {
++      const helpers = lexer
+       // Helper function to recursively parse task lists
+-      const parseTaskListContent = (content: string): any[] | undefined => {
++      const parseTaskListContent = (content: string, lexer: typeof helpers): any[] | undefined => {
+         const nestedResult = parseIndentedBlocks(
+           content,
+           {
+@@ -95,16 +96,17 @@ export const TaskList = Node.create<TaskListOptions>({
+             extractItemData: match => ({
+               indentLevel: match[1].length,
+               mainContent: match[4],
++              mainOffset: match[0].length - match[4].length,
+               checked: match[3].toLowerCase() === 'x',
+             }),
+-            createToken: (data, nestedTokens) => ({
++            createToken: (data, nestedTokens, sourceStart = 0) => ({
+               type: 'taskItem',
+               raw: '',
+               mainContent: data.mainContent,
+               indentLevel: data.indentLevel,
+               checked: data.checked,
+               text: data.mainContent,
+-              tokens: lexer.inlineTokens(data.mainContent),
++              tokens: lexer.inlineTokens(data.mainContent, {from: sourceStart + data.mainOffset, to: sourceStart + data.mainOffset + data.mainContent.length}),
+               nestedTokens,
+             }),
+             // Allow recursive nesting
+@@ -117,6 +119,7 @@ export const TaskList = Node.create<TaskListOptions>({
+           const taskListToken = {
+             type: 'taskList',
+             raw: nestedResult.raw,
++              sourceRange: { from: nestedResult.sourceStart, to: nestedResult.raw.length },
+             items: nestedResult.items,
+           }
+ 
+@@ -125,14 +128,14 @@ export const TaskList = Node.create<TaskListOptions>({
+           // and keep it as sibling tokens.
+           const remainder = content.slice(nestedResult.raw.length)
+           if (remainder.trim()) {
+-            return [taskListToken, ...lexer.blockTokens(remainder)]
++            return [taskListToken, ...lexer.blockTokens(remainder, {from: nestedResult.raw.length, to: content.length})]
+           }
+ 
+           return [taskListToken]
+         }
+ 
+         // Fall back to regular markdown parsing if not a task list
+-        return lexer.blockTokens(content)
++        return lexer.blockTokens(content, {from: 0, to: content.length})
+       }
+ 
+       const result = parseIndentedBlocks(
+@@ -142,16 +145,17 @@ export const TaskList = Node.create<TaskListOptions>({
+           extractItemData: match => ({
+             indentLevel: match[1].length,
+             mainContent: match[4],
++              mainOffset: match[0].length - match[4].length,
+             checked: match[3].toLowerCase() === 'x',
+           }),
+-          createToken: (data, nestedTokens) => ({
++          createToken: (data, nestedTokens, sourceStart = 0) => ({
+             type: 'taskItem',
+             raw: '',
+             mainContent: data.mainContent,
+             indentLevel: data.indentLevel,
+             checked: data.checked,
+             text: data.mainContent,
+-            tokens: lexer.inlineTokens(data.mainContent),
++            tokens: lexer.inlineTokens(data.mainContent, {from: sourceStart + data.mainOffset, to: sourceStart + data.mainOffset + data.mainContent.length}),
+             nestedTokens,
+           }),
+           // Use the recursive parser for nested content
+@@ -167,6 +171,7 @@ export const TaskList = Node.create<TaskListOptions>({
+       return {
+         type: 'taskList',
+         raw: result.raw,
++              sourceRange: { from: result.sourceStart, to: result.raw.length },
+         items: result.items,
+       }
+     },

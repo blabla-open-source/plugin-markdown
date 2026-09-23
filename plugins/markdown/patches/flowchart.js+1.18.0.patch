@@ -1,0 +1,39 @@
+diff --git a/node_modules/flowchart.js/src/flowchart.symbol.js b/node_modules/flowchart.js/src/flowchart.symbol.js
+--- a/node_modules/flowchart.js/src/flowchart.symbol.js
++++ b/node_modules/flowchart.js/src/flowchart.symbol.js
+@@ -364,7 +364,7 @@
+   } else if ((!origin || origin === 'right') && isOnSameColumn && isUpper) {
+     yOffset = Math.max(symbol.topLines.length, this.rightLines.length) * 10;
+     line = drawLine(this.chart, right, [
+-      {x: right.x + lineLength/2, y: right.y - yOffset},
++      {x: right.x + lineLength/2, y: right.y},
+       {x: right.x + lineLength/2, y: symbolTop.y - lineLength/2 - yOffset},
+       {x: symbolTop.x, y: symbolTop.y - lineLength/2 - yOffset},
+       {x: symbolTop.x, y: symbolTop.y}
+@@ -377,7 +377,7 @@
+   } else if ((!origin || origin === 'right') && isOnSameColumn && isUnder) {
+     yOffset = Math.max(symbol.topLines.length, this.rightLines.length) * 10;
+     line = drawLine(this.chart, right, [
+-      {x: right.x + lineLength/2, y: right.y - yOffset},
++      {x: right.x + lineLength/2, y: right.y},
+       {x: right.x + lineLength/2, y: symbolTop.y - lineLength/2 - yOffset},
+       {x: symbolTop.x, y: symbolTop.y - lineLength/2 - yOffset},
+       {x: symbolTop.x, y: symbolTop.y}
+@@ -452,7 +452,7 @@
+   } else if ((origin && origin === 'right') && isRight) {
+     yOffset = Math.max(symbol.topLines.length, this.rightLines.length) * 10;
+     line = drawLine(this.chart, right, [
+-      {x: symbolTop.x, y: right.y - yOffset},
++      {x: symbolTop.x, y: right.y},
+       {x: symbolTop.x, y: symbolTop.y - yOffset}
+     ], text);
+     this.rightLines.push(line);
+@@ -481,7 +481,7 @@
+     }
+     yOffset = Math.max(symbol.topLines.length, this.leftLines.length) * 10;
+     line = drawLine(this.chart, left, [
+-      {x: diffX, y: left.y - yOffset},
++      {x: diffX, y: left.y},
+       {x: diffX, y: symbolTop.y - lineLength/2 - yOffset},
+       {x: symbolTop.x, y: symbolTop.y - lineLength/2 - yOffset},
+       {x: symbolTop.x, y: symbolTop.y}

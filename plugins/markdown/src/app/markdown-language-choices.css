@@ -1,0 +1,24 @@
+.markdown-language-choices {
+	position: fixed;
+	margin: 0;
+	padding: 4px;
+	width: min(240px, calc(100vw - 8px));
+	box-sizing: border-box;
+	overflow-y: auto;
+	background: var(--md-surface);
+	color: var(--md-foreground);
+	border: 1px solid var(--md-border);
+	border-radius: 8px;
+	box-shadow: 0 6px 24px rgb(0 0 0 / 20%);
+	font:
+		13px / 1.4 system-ui,
+		sans-serif;
+}
+.markdown-language-choices [role="option"] {
+	padding: 8px;
+	border-radius: 4px;
+	cursor: pointer;
+}
+.markdown-language-choices [role="option"]:is(:hover, [aria-selected="true"]) {
+	background: var(--md-muted);
+}

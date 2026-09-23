@@ -1,0 +1,88 @@
+.markdown-iframe-content {
+	display: grid;
+	grid-column: 1 / -1;
+	justify-items: start;
+	min-width: 0;
+	max-width: 100%;
+	position: relative;
+}
+
+.markdown-iframe-content:where(:has(> .markdown-iframe-open:not([hidden]))) {
+	padding-top: 40px;
+}
+
+.markdown-iframe-content iframe {
+	background: white;
+	border: 1px solid var(--md-border);
+	max-height: 70vh;
+	max-width: 100%;
+}
+
+.markdown-iframe-content > .markdown-iframe-open {
+	position: absolute;
+	top: 0;
+	inset-inline-end: 0;
+	display: grid;
+	place-items: center;
+	width: 40px;
+	height: 40px;
+	padding: 0;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--md-muted-foreground);
+	cursor: pointer;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.markdown-iframe-open::before {
+	content: "";
+	width: 16px;
+	height: 16px;
+	background: currentColor;
+	mask: url("./markdown-iframe-open.svg") center / contain no-repeat;
+}
+
+.markdown-iframe-content > [hidden] {
+	display: none;
+}
+
+.markdown-iframe-content:is(:hover, :focus-within) > .markdown-iframe-open,
+.markdown-iframe-content > .markdown-iframe-open:is(:disabled, [data-open-failed]) {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.markdown-iframe-open:is(:hover, :focus-visible) {
+	background: var(--md-muted);
+	color: var(--md-foreground);
+}
+
+.markdown-iframe-open:focus-visible {
+	outline: 2px solid var(--md-accent);
+	outline-offset: -2px;
+}
+
+/* Standalone frames share the existing source-action row above their block. */
+.markdown-html-iframe .markdown-iframe-content {
+	position: static;
+	padding-top: 0;
+}
+
+.markdown-html-iframe .markdown-iframe-open {
+	top: -40px;
+	inset-inline-end: 80px;
+}
+
+.markdown-html-iframe:is(:hover, :focus-within) .markdown-iframe-open {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+@media (hover: none) {
+	.markdown-iframe-content > .markdown-iframe-open {
+		opacity: 1;
+		pointer-events: auto;
+	}
+}

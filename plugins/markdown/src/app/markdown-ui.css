@@ -1,0 +1,59 @@
+/* UI typography follows Host DESIGN.md, independent of Markdown content. */
+:root {
+	--md-ui-font: 400 13px/17px system-ui;
+	--md-ui-description-font: 400 12.5px/16px system-ui;
+}
+
+.markdown-form-panel {
+	width: 270px;
+	padding: 12px;
+	display: grid;
+	gap: 12px;
+}
+.markdown-form-panel form,
+.markdown-form-panel label {
+	display: grid;
+	gap: 6px;
+}
+.markdown-form-panel input:not([type="checkbox"]),
+.markdown-form-panel select {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 6px;
+	color: inherit;
+	background: transparent;
+	border: 1px solid var(--tt-border-color);
+	border-radius: 4px;
+}
+.markdown-form-panel form > div {
+	display: flex;
+	gap: 6px;
+}
+.markdown-form-panel [role="alert"] {
+	color: #d93025;
+}
+.markdown-panel-description {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+.markdown-form-panel .markdown-panel-toggle {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+/* Host DESIGN.md: settings-row-label and settings-row-description. */
+.markdown-form-panel label {
+	font-weight: 500;
+}
+.markdown-form-panel input,
+.markdown-form-panel select,
+.markdown-form-panel button {
+	font: inherit;
+	font-weight: 400;
+}
+.markdown-form-panel .markdown-panel-description,
+.markdown-form-panel .markdown-panel-hint {
+	font: var(--md-ui-description-font);
+}

@@ -1,0 +1,45 @@
+.tiptap .markdown-code-editor {
+	background: var(--md-code-background);
+	color: var(--md-code-foreground);
+	border-radius: 6px;
+	min-width: 0;
+	font-size: 0.9em;
+}
+.markdown-plain-code {
+	margin: 1.5em 0;
+	min-width: 0;
+}
+.tiptap .markdown-code-editor.cm-focused {
+	outline: none;
+}
+.tiptap .markdown-code-editor .cm-scroller {
+	font-family: var(--tt-font-family-mono, monospace);
+	line-height: 1.6;
+	overflow-x: auto;
+}
+.tiptap .markdown-code-editor .cm-content {
+	padding: 12px 0;
+}
+.tiptap .markdown-code-editor .cm-line {
+	padding: 0 12px;
+}
+.tiptap .markdown-code-editor .cm-gutters {
+	background: transparent;
+	color: var(--md-muted-foreground);
+	border: 0;
+	font-variant-numeric: tabular-nums;
+	user-select: none;
+}
+.tiptap .markdown-code-editor .cm-activeLine,
+.tiptap .markdown-code-editor .cm-activeLineGutter {
+	background: transparent;
+}
+.tiptap .markdown-code-editor .cm-cursor {
+	border-left-color: var(--md-code-foreground);
+}
+.tiptap .markdown-code-editor .cm-selectionBackground {
+	background: color-mix(in srgb, var(--md-accent) 25%, transparent);
+}
+.tiptap .markdown-code-editor[hidden] {
+	display: none;
+}

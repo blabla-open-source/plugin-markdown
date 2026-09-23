@@ -1,0 +1,10 @@
+.markdown-panel-positioner { z-index: 60; }
+.tiptap-popover {
+  font: var(--md-ui-font);
+  letter-spacing: 0;
+  outline: none;
+  max-height: var(--available-height);
+  max-width: min(420px, var(--available-width));
+  overflow: auto;
+  overscroll-behavior: contain;
+}

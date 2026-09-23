@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.*
+*.log
+.DS_Store
+*.map
+.data/
+coverage/
+test-results/
+playwright-report/
+.agents/
+.claude/
+.pensieve/
+AGENTS.md
+CLAUDE.md

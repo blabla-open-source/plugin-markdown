@@ -1,0 +1,19 @@
+.markdown-color-source-hidden {
+	display: none;
+}
+.markdown-color-source {
+	display: inline;
+	vertical-align: baseline;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-family: var(--tt-font-family-mono, monospace);
+	color: var(--md-muted-foreground);
+	outline: none;
+}
+.markdown-color-source[data-empty="true"] {
+	display: inline-block;
+	min-width: 1ch;
+}
+.markdown-color-softbreak {
+	white-space: normal;
+}

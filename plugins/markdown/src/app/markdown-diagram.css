@@ -1,0 +1,112 @@
+.markdown-code-diagram {
+	margin: 1.5em 0;
+	min-width: 0;
+	position: relative;
+}
+
+.markdown-diagram-menu {
+	background: var(--md-surface);
+	border: 1px solid var(--md-border);
+	border-radius: 8px;
+	box-shadow: 0 10px 30px rgb(0 0 0 / 20%);
+	min-width: 180px;
+	padding: 4px;
+	position: absolute;
+	z-index: 20;
+}
+
+.markdown-diagram-menu button {
+	background: transparent;
+	border: 0;
+	border-radius: 5px;
+	color: inherit;
+	display: block;
+	font: inherit;
+	padding: 6px 10px;
+	text-align: left;
+	width: 100%;
+}
+
+.markdown-diagram-menu button:is(:hover, :focus-visible) {
+	background: color-mix(in srgb, var(--md-accent) 18%, transparent);
+	outline: none;
+}
+
+.markdown-diagram-action-status {
+	display: block;
+	font-size: 0.8em;
+	min-height: 1.2em;
+}
+
+.markdown-diagram-action-status:empty {
+	display: none;
+}
+
+.markdown-code-language {
+	margin: 4px 0;
+}
+.markdown-code-language[hidden] {
+	display: none;
+}
+.markdown-code-language input {
+	background: var(--md-surface);
+	border: 1px solid var(--md-border);
+	border-radius: 4px;
+	color: inherit;
+	font: 13px/1.4 system-ui, sans-serif;
+	max-width: 100%;
+	padding: 6px 8px;
+	width: 160px;
+}
+.markdown-code-language input:focus-visible {
+	outline: 2px solid var(--md-accent);
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror
+	.markdown-code-diagram
+	[hidden] {
+	display: none;
+}
+
+.markdown-code-diagram-preview {
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 6px;
+	color: inherit;
+	cursor: pointer;
+	display: block;
+	max-width: 100%;
+	padding: 12px;
+	width: 100%;
+}
+
+.markdown-code-diagram-preview:focus-visible {
+	outline: 2px solid var(--md-accent);
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror
+	.markdown-code-diagram-preview
+	img {
+	border-radius: 0;
+	box-shadow: none;
+	display: block;
+	height: auto;
+	margin: auto;
+	max-width: 100%;
+}
+
+.markdown-code-diagram-preview [role="status"] {
+	display: block;
+	font-size: 0.85em;
+	text-align: left;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.markdown-code-diagram pre {
+	font-family: ui-monospace, monospace;
+	margin-bottom: 4px;
+	max-width: 100%;
+	outline: none;
+	overflow: auto;
+}

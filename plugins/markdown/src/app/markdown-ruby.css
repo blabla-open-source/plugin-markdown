@@ -1,0 +1,19 @@
+.markdown-ruby-preview {
+	background: transparent;
+	border: 0;
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	padding: 0;
+}
+
+.markdown-ruby textarea {
+	background: var(--md-background);
+	border: 1px solid var(--md-border);
+	border-radius: 4px;
+	color: var(--md-foreground);
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	max-width: 100%;
+	vertical-align: middle;
+	width: 24em;
+}

@@ -1,0 +1,42 @@
+.markdown-block-source {
+	font: inherit;
+	color: var(--md-foreground);
+	outline: none;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.markdown-prosemirror .markdown-block-source p {
+	margin: 0;
+}
+.markdown-prosemirror [data-link-definition] {
+	display: flex;
+	column-gap: 0.25em;
+	margin: 0.75em 0;
+	color: var(--md-muted-foreground);
+}
+
+.markdown-prosemirror .reference-definition-label {
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	padding: 0;
+	cursor: text;
+	white-space: pre;
+}
+.markdown-prosemirror .reference-definition-input {
+	font: inherit;
+	width: 12ch;
+	color: inherit;
+	background: transparent;
+	border: 1px solid currentColor;
+}
+.markdown-prosemirror .reference-definition-input[aria-invalid="true"] {
+	outline: 2px solid var(--destructive, #c33);
+}
+
+.markdown-prosemirror .reference-definition-content {
+	flex: 1;
+	min-width: 0;
+	white-space: pre-wrap;
+}

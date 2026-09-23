@@ -1,0 +1,46 @@
+.tiptap nav[data-markdown-toc] {
+	margin-block: 1.5em;
+	padding: 0.5em;
+	border-radius: 0.3em;
+}
+
+.tiptap nav[data-markdown-toc].ProseMirror-selectednode {
+	outline: 2px solid var(--md-muted-foreground);
+}
+
+.tiptap.ProseMirror nav[data-markdown-toc] .markdown-toc-items {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.tiptap.ProseMirror nav[data-markdown-toc] .markdown-toc-items li {
+	margin: 0;
+	padding-inline-start: calc(var(--toc-depth) * 1.25em);
+}
+
+.markdown-toc-items button {
+	display: block;
+	max-width: 100%;
+	padding: 0.2em 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: start;
+	overflow-wrap: anywhere;
+	cursor: pointer;
+}
+
+.markdown-toc-items button:hover {
+	text-decoration: underline;
+}
+
+.markdown-toc-items button:focus-visible {
+	outline: 2px solid currentColor;
+	outline-offset: 2px;
+}
+
+.markdown-toc-empty {
+	color: var(--md-muted-foreground);
+}

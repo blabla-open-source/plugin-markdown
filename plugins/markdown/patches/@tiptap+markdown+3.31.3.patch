@@ -1,0 +1,1724 @@
+diff --git a/node_modules/@tiptap/markdown/dist/index.cjs b/node_modules/@tiptap/markdown/dist/index.cjs
+index e4a07ed..d97ecfe 100644
+--- a/node_modules/@tiptap/markdown/dist/index.cjs
++++ b/node_modules/@tiptap/markdown/dist/index.cjs
+@@ -17,19 +17,23 @@ const TRAILING_BLANK_LINES = /\n[^\S\n]*(?:\n[^\S\n]*)+$/;
+ * @param tokens The marked token stream to normalize.
+ * @returns A new token array with absorbed blank lines as `space` tokens.
+ */
+-function extractAbsorbedBlankLines(tokens) {
++function extractAbsorbedBlankLines(tokens, onDerive) {
+ 	return tokens.flatMap((token, index) => {
+ 		var _tokens;
+ 		if (token.type === "space" || ((_tokens = tokens[index + 1]) === null || _tokens === void 0 ? void 0 : _tokens.type) === "space") return [token];
+-		const trailingBlankLines = (token.raw || "").match(TRAILING_BLANK_LINES);
+-		if (!trailingBlankLines) return [token];
+-		return [{
++		const trailingBlankLines = (token.raw || "").slice(token.sourceContentEnd ?? 0).match(TRAILING_BLANK_LINES);
++		if (!trailingBlankLines || token.sourceContentEnd >= (token.raw || "").length) return [token];
++		const derived = [{
+ 			...token,
+ 			raw: (token.raw || "").slice(0, -trailingBlankLines[0].length)
+ 		}, {
+ 			type: "space",
+ 			raw: trailingBlankLines[0]
+ 		}];
++		const boundary = (token.raw || "").length - trailingBlankLines[0].length;
++		onDerive?.(derived[0], token, 0, boundary, true);
++		onDerive?.(derived[1], token, boundary, (token.raw || "").length);
++		return derived;
+ 	});
+ }
+ /**
+@@ -331,6 +335,7 @@ function htmlContainsUnrecognizedTag(html, schemaTags) {
+ //#endregion
+ //#region src/MarkdownManager.ts
+ var MarkdownManager = class {
++	usedSourceBoundaries = new WeakSet();
+ 	/**
+ 	* Create a MarkdownManager.
+ 	* @param options.marked Optional marked instance to use (injected).
+@@ -339,6 +344,7 @@ var MarkdownManager = class {
+ 	* @param options.extensions An array of Tiptap extensions to register for markdown parsing and rendering.
+ 	*/
+ 	constructor(options) {
++		this.onParse = options?.onParse;
+ 		var _options$marked, _options$indentation$, _options$indentation, _options$indentation$2, _options$indentation2;
+ 		this.activeParseLexer = null;
+ 		this.extensionRanks = /* @__PURE__ */ new Map();
+@@ -417,15 +423,33 @@ var MarkdownManager = class {
+ 	createLexer() {
+ 		return new this.markedInstance.Lexer(this.markedInstance.defaults);
+ 	}
+-	createTokenizerHelpers(lexer) {
++	createTokenizerHelpers(lexer, context = lexer.sourceContext) {
++		const parse = (kind, src, source) => {
++			const tokens = [];
++			if (source && context && lexer.onSource) lexer.onSource({ kind: "input", tokens, frame: context.frame, from: context.from + source.from, to: context.from + source.to });
++			return lexer[kind](src, tokens);
++		};
+ 		return {
+-			inlineTokens: (src) => lexer.inlineTokens(src),
+-			blockTokens: (src) => lexer.blockTokens(src)
++			claimSourcePoint: () => { const boundary=lexer.sourceParagraph; if(!boundary||!context||boundary.frame!==context.frame||boundary.taken)throw new Error("Tokenizer has no pending source boundary");boundary.taken=true;boundary.affinity=-1; },
++			sourcePoint: () => lexer.sourceParagraph && context && lexer.sourceParagraph.frame === context.frame && !lexer.sourceParagraph.taken ? lexer.sourceParagraph.point-context.from : undefined,
++			withSource: (src, segments) => {
++				const tokens = [];
++				const frame = { source: src, tokens };
++				if (context && lexer.onSource) {
++					lexer.onSource({kind:"mappedInput",tokens,frame:context.frame,segments:segments.map(segment=>({...segment,parentFrom:context.from+segment.parentFrom,parentTo:context.from+segment.parentTo}))});
++					lexer.onSource({kind:"frame",frame});
++				}
++				return this.createTokenizerHelpers(lexer,{frame,from:0});
++			},
++			inlineTokens: (src, source) => parse("inlineTokens", src, source),
++			blockTokens: (src, source) => parse("blockTokens", src, source)
+ 		};
+ 	}
+-	tokenizeInline(src) {
+-		var _this$activeParseLexe;
+-		return ((_this$activeParseLexe = this.activeParseLexer) !== null && _this$activeParseLexe !== void 0 ? _this$activeParseLexe : this.createLexer()).inlineTokens(src);
++	tokenizeInline(src, source) {
++		const lexer = this.activeParseLexer ?? this.createLexer();
++		const tokens = [];
++		if (source) lexer.onSource?.({kind:"sliceInput",tokens,sourceTokens:source.tokens,from:source.from,to:source.to});
++		return lexer.inlineTokens(src,tokens);
+ 	}
+ 	/**
+ 	* Register a custom tokenizer with marked.js for parsing non-standard markdown syntax.
+@@ -490,7 +514,11 @@ var MarkdownManager = class {
+ 	serialize(docOrContent) {
+ 		if (!docOrContent) return "";
+ 		const result = this.renderNodes(docOrContent, docOrContent);
+-		return this.isEmptyOutput(result) ? "" : result;
++		if (this.isEmptyOutput(result) && this.collapseEmptyOutput()) {
++			this.onRenderEmpty();
++			return "";
++		}
++		return result;
+ 	}
+ 	/**
+ 	* Check if the markdown output represents an empty document.
+@@ -504,18 +532,25 @@ var MarkdownManager = class {
+ 	/**
+ 	* Parse markdown string into Tiptap JSON document using registered extension handlers.
+ 	*/
+-	parse(markdown) {
++	parse(markdown, boundary) {
+ 		if (!this.hasMarked()) throw new Error("No marked instance available for parsing");
++		if(boundary){
++			if(!Number.isInteger(boundary.point)||boundary.point<0||boundary.point>markdown.replace(/\r\n?/g,"\n").length)throw new RangeError("Source boundary is outside normalized parser input");
++			if(boundary.frame||boundary.taken||this.usedSourceBoundaries.has(boundary))throw new Error("Source boundary has already been used");
++			this.usedSourceBoundaries.add(boundary);
++		}
+ 		const previousParseLexer = this.activeParseLexer;
+ 		const parseLexer = this.createLexer();
++		parseLexer.sourceParagraph = boundary;
+ 		this.activeParseLexer = parseLexer;
+ 		try {
+ 			const tokens = parseLexer.lex(markdown);
+-			return {
+-				type: "doc",
+-				content: this.parseTokens(tokens, true)
+-			};
++			const document = { type: "doc", content: this.parseTokens(tokens, true) };
++			this.onParse?.({ kind: "document", tokens, document });
++			return document;
+ 		} finally {
++			parseLexer.sourceParagraph = undefined;
++			if(boundary)delete boundary.frame;
+ 			this.activeParseLexer = previousParseLexer;
+ 		}
+ 	}
+@@ -523,7 +558,7 @@ var MarkdownManager = class {
+ 	* Convert an array of marked tokens into Tiptap JSON nodes using registered extension handlers.
+ 	*/
+ 	parseTokens(tokens, parseImplicitEmptyParagraphs = false) {
+-		const normalizedTokens = parseImplicitEmptyParagraphs ? extractAbsorbedBlankLines(tokens) : tokens;
++		const normalizedTokens = parseImplicitEmptyParagraphs ? extractAbsorbedBlankLines(tokens, (token, parent, from, to, copiedText) => this.onParse?.({ kind: "derive", token, parent, from, to, copiedText })) : tokens;
+ 		const nonSpaceTokenIndexes = normalizedTokens.reduce((indexes, token, index) => {
+ 			if (token.type !== "space") indexes.push(index);
+ 			return indexes;
+@@ -538,7 +573,9 @@ var MarkdownManager = class {
+ 			if (parseImplicitEmptyParagraphs && token.type === "space") {
+ 				var _nonSpaceTokenIndexes;
+ 				const nextNonSpaceTokenIndex = (_nonSpaceTokenIndexes = nonSpaceTokenIndexes[nextNonSpaceTokenPointer]) !== null && _nonSpaceTokenIndexes !== void 0 ? _nonSpaceTokenIndexes : -1;
+-				return this.createImplicitEmptyParagraphsFromSpace(token, previousNonSpaceTokenIndex, nextNonSpaceTokenIndex);
++				const nodes = this.createImplicitEmptyParagraphsFromSpace(token, previousNonSpaceTokenIndex, nextNonSpaceTokenIndex);
++				this.onParse?.({ kind: "token", token, nodes });
++				return nodes;
+ 			}
+ 			const parsed = this.parseToken(token, parseImplicitEmptyParagraphs);
+ 			if (parsed === null) return [];
+@@ -549,10 +586,13 @@ var MarkdownManager = class {
+ 		const separatorCount = this.countParagraphSeparators(token.raw || "");
+ 		if (separatorCount === 0) return [];
+ 		const emptyParagraphCount = Math.max(separatorCount - (previousNonSpaceTokenIndex === -1 || nextNonSpaceTokenIndex === -1 ? 0 : 1), 0);
+-		return Array.from({ length: emptyParagraphCount }, () => ({
+-			type: "paragraph",
+-			content: []
+-		}));
++		const separators = [...(token.raw || "").matchAll(/\r?\n\r?\n/g)];
++		return Array.from({ length: emptyParagraphCount }, (_, index) => {
++			const node = { type: "paragraph", content: [] };
++			const separator = separators[index + (previousNonSpaceTokenIndex === -1 || nextNonSpaceTokenIndex === -1 ? 0 : 1)];
++			this.onParse?.({ kind: "empty", token, node, from: separator.index, to: separator.index + separator[0].length });
++			return node;
++		});
+ 	}
+ 	countParagraphSeparators(raw) {
+ 		return (raw.replace(/\r\n/g, "\n").match(/\n\n/g) || []).length;
+@@ -561,6 +601,11 @@ var MarkdownManager = class {
+ 	* Parse a single token into Tiptap JSON using the appropriate registered handler.
+ 	*/
+ 	parseToken(token, parseImplicitEmptyParagraphs = false) {
++		const result = this.parseTokenContent(token, parseImplicitEmptyParagraphs);
++		this.onParse?.({ kind: "token", token, nodes: result === null ? [] : Array.isArray(result) ? result : [result] });
++		return result;
++	}
++	parseTokenContent(token, parseImplicitEmptyParagraphs = false) {
+ 		if (!token.type) return null;
+ 		if (token.type === "list") return this.parseListToken(token);
+ 		const handlers = this.getHandlersForToken(token.type);
+@@ -630,6 +675,7 @@ var MarkdownManager = class {
+ 					nestedTokens
+ 				};
+ 			}
++			if (processedItem !== item) this.onParse?.({ kind: "derive", token: processedItem, parent: item, from: 0, to: (item.raw || "").length });
+ 			const itemType = isTask ? "taskList" : "list";
+ 			if (currentType !== itemType) {
+ 				if (currentGroup.length > 0) groups.push({
+@@ -645,6 +691,7 @@ var MarkdownManager = class {
+ 			items: currentGroup
+ 		});
+ 		const results = [];
++		let itemOffset = 0;
+ 		for (let i = 0; i < groups.length; i += 1) {
+ 			const group = groups[i];
+ 			const subToken = {
+@@ -652,6 +699,8 @@ var MarkdownManager = class {
+ 				type: group.type,
+ 				items: group.items
+ 			};
++			this.onParse?.({ kind: "listGroup", token: subToken, parent: token, items: token.items.slice(itemOffset, itemOffset + group.items.length) });
++			itemOffset += group.items.length;
+ 			const parsed = this.parseToken(subToken);
+ 			if (parsed) {
+ 				if (Array.isArray(parsed)) results.push(...parsed);
+@@ -690,7 +739,7 @@ var MarkdownManager = class {
+ 	createParseHelpers() {
+ 		return {
+ 			parseInline: (tokens) => this.parseInlineTokens(tokens),
+-			tokenizeInline: (src) => this.tokenizeInline(src),
++			tokenizeInline: (src, source) => this.tokenizeInline(src, source),
+ 			parseChildren: (tokens) => this.parseTokens(tokens),
+ 			parseBlockChildren: (tokens) => this.parseTokens(tokens, true),
+ 			createTextNode: (text, marks) => {
+@@ -709,6 +758,8 @@ var MarkdownManager = class {
+ 				if (!attrs || Object.keys(attrs).length === 0) delete node.attrs;
+ 				return node;
+ 			},
++			createTokenText: (token) => this.parseTextToken(token),
++			applyNodeMarks: (node, marks) => this.cloneParseNode(node, {...node, marks}),
+ 			applyMark: (markType, content, attrs) => ({
+ 				mark: markType,
+ 				content,
+@@ -726,18 +777,20 @@ var MarkdownManager = class {
+ 	* Parse inline tokens (bold, italic, links, etc.) into text nodes with marks.
+ 	* This is the complex part that handles mark nesting and boundaries.
+ 	*/
++	parseTextToken(token) {
++ const input=token.text||"";const replacements=[];
++ const output=token.type==="text"?(0, _tiptap_core.decodeHtmlEntities)(input,this.onParse?(from,to,text)=>replacements.push({from,to,text}):undefined):input;
++ const node={type:"text",text:output};this.onParse?.({kind:"text",token,node,input,output,replacements});return node;
++ }
+ 	parseInlineTokens(tokens) {
+ 		const result = [];
++		if(!tokens.length)this.onParse?.({kind:"inline",content:result,tokens,fromToken:0,toToken:0,fromNode:0,toNode:0});
+ 		for (let i = 0; i < tokens.length; i += 1) {
+ 			const token = tokens[i];
+-			if (token.type === "text") result.push({
+-				type: "text",
+-				text: (0, _tiptap_core.decodeHtmlEntities)(token.text || "")
+-			});
+-			else if (token.type === "escape") result.push({
+-				type: "text",
+-				text: token.text || ""
+-			});
++			const firstToken = i;
++			const firstNode = result.length;
++			if (token.type === "text") result.push(this.parseTextToken(token));
++			else if (token.type === "escape") result.push(this.parseTextToken(token));
+ 			else if (token.type === "html") {
+ 				var _ref, _token$raw;
+ 				const raw = ((_ref = (_token$raw = token.raw) !== null && _token$raw !== void 0 ? _token$raw : token.text) !== null && _ref !== void 0 ? _ref : "").toString();
+@@ -767,6 +820,7 @@ var MarkdownManager = class {
+ 							text: mergedRaw,
+ 							block: false
+ 						};
++						this.onParse?.({ kind: "concat", token: mergedToken, inputs: tokens.slice(i, foundIndex + 1).map((token, index) => ({ token, field: token.raw != null ? "raw" : "text", length: parts[index].length })) });
+ 						const parsed = this.parseHTMLToken(mergedToken);
+ 						if (parsed) {
+ 							const normalized = this.normalizeParseResult(parsed);
+@@ -774,6 +828,7 @@ var MarkdownManager = class {
+ 							else if (normalized) result.push(normalized);
+ 						}
+ 						i = foundIndex;
++						this.onParse?.({ kind: "inline", content: result, tokens, fromToken: firstToken, toToken: i + 1, fromNode: firstNode, toNode: result.length });
+ 						continue;
+ 					}
+ 				}
+@@ -798,6 +853,7 @@ var MarkdownManager = class {
+ 					}
+ 				} else if (token.tokens) result.push(...this.parseInlineTokens(token.tokens));
+ 			}
++			this.onParse?.({ kind: "inline", content: result, tokens, fromToken: firstToken, toToken: i + 1, fromNode: firstNode, toNode: result.length });
+ 		}
+ 		for (let i = result.length - 1; i > 0; i -= 1) {
+ 			const current = result[i];
+@@ -806,6 +862,7 @@ var MarkdownManager = class {
+ 				const currentMarks = current.marks || [];
+ 				const previousMarks = previous.marks || [];
+ 				if ((0, _tiptap_core.marksEqual)(currentMarks, previousMarks)) {
++					this.onParse?.({kind:"joinText",target:previous,source:current,offset:(previous.text||"").length});
+ 					previous.text = (previous.text || "") + (current.text || "");
+ 					result.splice(i, 1);
+ 				}
+@@ -816,6 +873,7 @@ var MarkdownManager = class {
+ 	/**
+ 	* Apply a mark to content nodes.
+ 	*/
++	cloneParseNode(source,node) {this.onParse?.({kind:"clone",source,node});return node;}
+ 	applyMarkToContent(markType, content, attrs) {
+ 		return content.map((node) => {
+ 			if (node.type === "text") {
+@@ -824,15 +882,15 @@ var MarkdownManager = class {
+ 					type: markType,
+ 					attrs
+ 				} : { type: markType };
+-				return {
++				return this.cloneParseNode(node, {
+ 					...node,
+ 					marks: [...existingMarks, newMark]
+-				};
++				});
+ 			}
+-			return {
++			return this.cloneParseNode(node, {
+ 				...node,
+ 				content: node.content ? this.applyMarkToContent(markType, node.content, attrs) : void 0
+-			};
++			});
+ 		});
+ 	}
+ 	isMarkResult(result) {
+@@ -860,15 +918,9 @@ var MarkdownManager = class {
+ 				attrs: { level: token.depth || 1 },
+ 				content: token.tokens ? this.parseInlineTokens(token.tokens) : []
+ 			};
+-			case "text": return {
+-				type: "text",
+-				text: (0, _tiptap_core.decodeHtmlEntities)(token.text || "")
+-			};
++			case "text": return this.parseTextToken(token);
+ 			case "html": return this.parseHTMLToken(token);
+-			case "escape": return {
+-				type: "text",
+-				text: token.text || ""
+-			};
++			case "escape": return this.parseTextToken(token);
+ 			case "space": return null;
+ 			default:
+ 				if (token.tokens) return this.parseTokens(token.tokens, parseImplicitEmptyParagraphs);
+@@ -888,10 +940,10 @@ var MarkdownManager = class {
+ 	parseHTMLToken(token) {
+ 		const html = token.text || token.raw || "";
+ 		if (!html.trim()) return null;
+-		if (this.isUnrecognizedHtml(html)) return this.htmlAsLiteralText(html, !!token.block);
+-		if (typeof window === "undefined" || typeof window.DOMParser === "undefined") return this.htmlAsLiteralText(html, !!token.block);
++		if (this.isUnrecognizedHtml(html)) return this.htmlAsLiteralText(html, !!token.block, token);
++		if (typeof window === "undefined" || typeof window.DOMParser === "undefined") return this.htmlAsLiteralText(html, !!token.block, token);
+ 		try {
+-			const parsed = (0, _tiptap_core.generateJSON)(html, this.baseExtensions);
++			const parsed = this.parseHTMLContent(html, token);
+ 			if (parsed.type === "doc" && parsed.content) {
+ 				if (token.block) return parsed.content;
+ 				const inlineContent = this.toInlineContent(parsed.content);
+@@ -912,6 +964,7 @@ var MarkdownManager = class {
+ 	*   toInlineContent([{ type: 'paragraph', content: [{ type: 'text', text: 'hi' }] }])
+ 	*   // → [{ type: 'text', text: 'hi' }]
+ 	*/
++	parseHTMLContent(html, _token) { return (0, _tiptap_core.generateJSON)(html, this.baseExtensions); }
+ 	toInlineContent(content) {
+ 		const inlineTypes = this.getInlineNodeTypes();
+ 		return content.flatMap((node) => {
+@@ -1001,20 +1054,12 @@ var MarkdownManager = class {
+ 	*   htmlAsLiteralText('<enter foo>', true)
+ 	*   // → { type: 'paragraph', content: [{ type: 'text', text: '<enter foo>' }] }
+ 	*/
+-	htmlAsLiteralText(html, isBlock) {
++	htmlAsLiteralText(html, isBlock, token) {
+ 		const text = html.replace(/\s+$/, "");
+ 		if (!text) return null;
+-		if (isBlock) return {
+-			type: "paragraph",
+-			content: [{
+-				type: "text",
+-				text
+-			}]
+-		};
+-		return {
+-			type: "text",
+-			text
+-		};
++		const node = { type: "text", text };
++		this.onParse?.({ kind: "text", token, node, input: html, output: text, replacements: text.length < html.length ? [{ from: text.length, to: html.length, text: "" }] : [] });
++		return isBlock ? { type: "paragraph", content: [node] } : node;
+ 	}
+ 	/**
+ 	* Encode HTML entities in text unless the node is inside a code context
+@@ -1087,8 +1132,17 @@ var MarkdownManager = class {
+ 	* Render an array of nodes while properly tracking mark boundaries.
+ 	* This handles cases where marks span across multiple text nodes.
+ 	*/
++	getRenderTextPosition(_node, _input) { return undefined; }
++	collapseEmptyOutput() { return true; }
++	onRenderEmpty() {}
++	onRenderNode(_node, _parent, _from, _to) {}
+ 	renderNodesWithMarkBoundaries(nodes, parentNode, separator = "", level = 0) {
+ 		const result = [];
++		let outputLength = 0;
++		const append = (value) => {
++			outputLength += (result.length ? separator.length : 0) + value.length;
++			result.push(value);
++		};
+ 		const activeMarks = /* @__PURE__ */ new Map();
+ 		const reopenWithHtmlOnNextOpen = /* @__PURE__ */ new Set();
+ 		const markOpeningModes = /* @__PURE__ */ new Map();
+@@ -1097,6 +1151,9 @@ var MarkdownManager = class {
+ 			if (!node.type) return;
+ 			if (node.type === "text") {
+ 				let textContent = this.encodeTextForMarkdown(node.text || "", node, parentNode);
++				const trace = this.getRenderTextPosition(node, textContent);
++				let point = trace?.position;
++				let middlePoint, leadingPoint, trailingPoint;
+ 				let currentMarks = new Map((node.marks || []).map((mark) => [mark.type, mark]));
+ 				let marksToOpen = this.getMarksToOpenForSerialization(activeMarks, currentMarks, nextNode);
+ 				let marksToClose = findMarksToClose(currentMarks, nextNode);
+@@ -1116,6 +1173,7 @@ var MarkdownManager = class {
+ 					if (middleTrailingMatch) {
+ 						middleTrailingWhitespace = middleTrailingMatch[1];
+ 						textContent = textContent.slice(0, -middleTrailingWhitespace.length);
++				    if (point !== undefined && point > textContent.length) { middlePoint = point - textContent.length; point = undefined; }
+ 					}
+ 				}
+ 				if (!hasCrossedBoundary) marksToClose.slice().reverse().forEach((markType) => {
+@@ -1134,12 +1192,13 @@ var MarkdownManager = class {
+ 					if (leadingMatch) {
+ 						leadingWhitespace = leadingMatch[1];
+ 						textContent = textContent.slice(leadingWhitespace.length);
++				    if (point !== undefined) { if (point < leadingWhitespace.length) { leadingPoint = point; point = undefined; } else point -= leadingWhitespace.length; }
+ 					}
+ 				}
+ 				marksToOpen.forEach(({ type, mark }) => {
+ 					const openingMode = reopenWithHtmlOnNextOpen.has(type) ? "html" : "markdown";
+ 					const openMarkdown = this.getMarkOpening(type, mark, openingMode);
+-					if (openMarkdown) textContent = openMarkdown + textContent;
++					if (openMarkdown) { textContent = openMarkdown + textContent; if (point !== undefined) point += openMarkdown.length; }
+ 					markOpeningModes.set(type, openingMode);
+ 					reopenWithHtmlOnNextOpen.delete(type);
+ 				});
+@@ -1147,6 +1206,7 @@ var MarkdownManager = class {
+ 					activeMarks.set(type, mark);
+ 				});
+ 				textContent = leadingWhitespace + textContent;
++				if (leadingPoint !== undefined) point = leadingPoint; else if (point !== undefined) point += leadingWhitespace.length;
+ 				let marksToCloseAtEnd;
+ 				if (hasCrossedBoundary) {
+ 					const nextMarkTypes = new Set(((nextNode === null || nextNode === void 0 ? void 0 : nextNode.marks) || []).map((mark) => mark.type));
+@@ -1163,6 +1223,7 @@ var MarkdownManager = class {
+ 					if (trailingMatch) {
+ 						trailingWhitespace = trailingMatch[1];
+ 						textContent = textContent.slice(0, -trailingWhitespace.length);
++				    if (point !== undefined && point > textContent.length) { trailingPoint = point - textContent.length; point = undefined; }
+ 					}
+ 				}
+ 				marksToCloseAtEnd.forEach((markType) => {
+@@ -1173,9 +1234,12 @@ var MarkdownManager = class {
+ 					activeMarks.delete(markType);
+ 					markOpeningModes.delete(markType);
+ 				});
++				if (trailingPoint !== undefined) point = textContent.length + trailingPoint;
+ 				textContent += trailingWhitespace;
++				if (middlePoint !== undefined) point = textContent.length + middlePoint;
+ 				textContent += middleTrailingWhitespace;
+-				result.push(textContent);
++				if (point !== undefined) trace?.finish(outputLength + (result.length ? separator.length : 0) + point);
++				append(textContent);
+ 			} else {
+ 				const nodeMarkTypes = new Set((node.marks || []).map((mark) => mark.type));
+ 				const marksToReopen = /* @__PURE__ */ new Map();
+@@ -1198,7 +1262,9 @@ var MarkdownManager = class {
+ 					markOpeningModes.set(markType, openingMode);
+ 					return this.getMarkOpening(markType, mark, openingMode);
+ 				});
+-				result.push(beforeMarkdown + nodeContent + afterMarkdown);
++				const from = outputLength + (result.length ? separator.length : 0) + beforeMarkdown.length;
++				this.onRenderNode(node, parentNode, from, from + nodeContent.length);
++				append(beforeMarkdown + nodeContent + afterMarkdown);
+ 			}
+ 		});
+ 		return result.join(separator);
+@@ -1414,5 +1480,3 @@ exports.findMarksToOpen = findMarksToOpen;
+ exports.isTaskItem = isTaskItem;
+ exports.reopenMarksAfterNode = reopenMarksAfterNode;
+ exports.wrapInMarkdownBlock = wrapInMarkdownBlock;
+-
+-//# sourceMappingURL=index.cjs.map
+\ No newline at end of file
+diff --git a/node_modules/@tiptap/markdown/dist/index.d.cts b/node_modules/@tiptap/markdown/dist/index.d.cts
+index 61c4250..a453b68 100644
+--- a/node_modules/@tiptap/markdown/dist/index.d.cts
++++ b/node_modules/@tiptap/markdown/dist/index.d.cts
+@@ -1,8 +1,27 @@
++import type { SourceBoundary } from "marked";
+ import { AnyExtension, Content, Extension, JSONContent, MarkdownToken } from "@tiptap/core";
+ import { marked } from "marked";
+ import { Fragment, Node } from "@tiptap/pm/model";
+ //#region src/MarkdownManager.d.ts
++/** Read-only observations of parser-owned token derivation and node creation.
++ * Offsets in derive events refer to the parent's normalized raw, in UTF-16.
++ * Consumers must not mutate tokens or nodes from these callbacks.
++ */
++export type MarkdownParseEvent =
++  | { kind: 'concat'; token: MarkdownToken; inputs: { token: MarkdownToken; field: 'raw' | 'text'; length: number }[] }
++  | { kind: 'clone'; source: JSONContent; node: JSONContent }
++  | { kind: 'joinText'; target: JSONContent; source: JSONContent; offset: number }
++  | { kind: 'text'; token: MarkdownToken; node: JSONContent; input: string; output: string; replacements: readonly { from: number; to: number; text: string }[] }
++  | { kind: 'inline'; content: JSONContent[]; tokens: MarkdownToken[]; fromToken: number; toToken: number; fromNode: number; toNode: number }
++  | { kind: 'derive'; token: MarkdownToken; parent: MarkdownToken; from: number; to: number; copiedText?: true }
++  | { kind: 'listGroup'; token: MarkdownToken; parent: MarkdownToken; items: MarkdownToken[] }
++  | { kind: 'token'; token: MarkdownToken; nodes: JSONContent[] }
++  | { kind: 'empty'; token: MarkdownToken; node: JSONContent; from: number; to: number }
++  | { kind: 'document'; tokens: MarkdownToken[]; document: JSONContent }
++
+ declare class MarkdownManager {
++  private readonly usedSourceBoundaries;
++  private onParse;
+   private markedInstance;
+   private activeParseLexer;
+   private registry;
+@@ -36,6 +55,7 @@ declare class MarkdownManager {
+    * @param options.extensions An array of Tiptap extensions to register for markdown parsing and rendering.
+    */
+   constructor(options?: {
++    onParse?: (event: MarkdownParseEvent) => void;
+     marked?: typeof marked;
+     markedOptions?: Parameters<typeof marked.setOptions>[0];
+     indentation?: {
+@@ -85,7 +105,7 @@ declare class MarkdownManager {
+   /**
+    * Parse markdown string into Tiptap JSON document using registered extension handlers.
+    */
+-  parse(markdown: string): JSONContent;
++  parse(markdown: string, boundary?: SourceBoundary): JSONContent;
+   /**
+    * Convert an array of marked tokens into Tiptap JSON nodes using registered extension handlers.
+    */
+@@ -96,6 +116,7 @@ declare class MarkdownManager {
+    * Parse a single token into Tiptap JSON using the appropriate registered handler.
+    */
+   private parseToken;
++  private parseTokenContent;
+   private lastParseResult;
+   /**
+    * Parse a list token, handling mixed bullet and task list items by splitting them into separate lists.
+@@ -122,11 +143,13 @@ declare class MarkdownManager {
+    * Parse inline tokens (bold, italic, links, etc.) into text nodes with marks.
+    * This is the complex part that handles mark nesting and boundaries.
+    */
+-  private parseInlineTokens;
++  private parseTextToken;
++    private parseInlineTokens;
+   /**
+    * Apply a mark to content nodes.
+    */
+-  private applyMarkToContent; /**
++  private cloneParseNode;
++    private applyMarkToContent; /**
+    * Check if a parse result represents a mark to be applied.
+    */
+   private isMarkResult;
+@@ -159,6 +182,7 @@ declare class MarkdownManager {
+    *   toInlineContent([{ type: 'paragraph', content: [{ type: 'text', text: 'hi' }] }])
+    *   // → [{ type: 'text', text: 'hi' }]
+    */
++  protected parseHTMLContent(html: string, token: MarkdownToken): JSONContent;
+   private toInlineContent;
+   /**
+    * Collect the names of the node types the schema treats as inline. Result is
+@@ -237,6 +261,10 @@ declare class MarkdownManager {
+    * Render an array of nodes while properly tracking mark boundaries.
+    * This handles cases where marks span across multiple text nodes.
+    */
++  protected getRenderTextPosition(node: JSONContent, input: string): { position: number; finish(position: number): void } | undefined;
++  protected collapseEmptyOutput(): boolean;
++  protected onRenderEmpty(): void;
++  protected onRenderNode(node: JSONContent, parent: JSONContent | undefined, from: number, to: number): void;
+   private renderNodesWithMarkBoundaries;
+   /**
+    * Get the opening markdown syntax for a mark type.
+@@ -360,7 +388,7 @@ declare const Markdown: Extension<MarkdownExtensionOptions, MarkdownExtensionSto
+  * @param tokens The marked token stream to normalize.
+  * @returns A new token array with absorbed blank lines as `space` tokens.
+  */
+-declare function extractAbsorbedBlankLines(tokens: MarkdownToken[]): MarkdownToken[];
++declare function extractAbsorbedBlankLines(tokens: MarkdownToken[], onDerive?: (token: MarkdownToken, parent: MarkdownToken, from: number, to: number, copiedText?: true) => void): MarkdownToken[];
+ /**
+  * Wraps each line of the content with the given prefix.
+  * @param prefix The prefix to wrap each line with.
+diff --git a/node_modules/@tiptap/markdown/dist/index.d.ts b/node_modules/@tiptap/markdown/dist/index.d.ts
+index dea0548..89f82c1 100644
+--- a/node_modules/@tiptap/markdown/dist/index.d.ts
++++ b/node_modules/@tiptap/markdown/dist/index.d.ts
+@@ -1,8 +1,27 @@
++import type { SourceBoundary } from "marked";
+ import { AnyExtension, Content, Extension, JSONContent, MarkdownToken } from "@tiptap/core";
+ import { marked } from "marked";
+ import { Fragment, Node } from "@tiptap/pm/model";
+ //#region src/MarkdownManager.d.ts
++/** Read-only observations of parser-owned token derivation and node creation.
++ * Offsets in derive events refer to the parent's normalized raw, in UTF-16.
++ * Consumers must not mutate tokens or nodes from these callbacks.
++ */
++export type MarkdownParseEvent =
++  | { kind: 'concat'; token: MarkdownToken; inputs: { token: MarkdownToken; field: 'raw' | 'text'; length: number }[] }
++  | { kind: 'clone'; source: JSONContent; node: JSONContent }
++  | { kind: 'joinText'; target: JSONContent; source: JSONContent; offset: number }
++  | { kind: 'text'; token: MarkdownToken; node: JSONContent; input: string; output: string; replacements: readonly { from: number; to: number; text: string }[] }
++  | { kind: 'inline'; content: JSONContent[]; tokens: MarkdownToken[]; fromToken: number; toToken: number; fromNode: number; toNode: number }
++  | { kind: 'derive'; token: MarkdownToken; parent: MarkdownToken; from: number; to: number; copiedText?: true }
++  | { kind: 'listGroup'; token: MarkdownToken; parent: MarkdownToken; items: MarkdownToken[] }
++  | { kind: 'token'; token: MarkdownToken; nodes: JSONContent[] }
++  | { kind: 'empty'; token: MarkdownToken; node: JSONContent; from: number; to: number }
++  | { kind: 'document'; tokens: MarkdownToken[]; document: JSONContent }
++
+ declare class MarkdownManager {
++  private readonly usedSourceBoundaries;
++  private onParse;
+   private markedInstance;
+   private activeParseLexer;
+   private registry;
+@@ -36,6 +55,7 @@ declare class MarkdownManager {
+    * @param options.extensions An array of Tiptap extensions to register for markdown parsing and rendering.
+    */
+   constructor(options?: {
++    onParse?: (event: MarkdownParseEvent) => void;
+     marked?: typeof marked;
+     markedOptions?: Parameters<typeof marked.setOptions>[0];
+     indentation?: {
+@@ -85,7 +105,7 @@ declare class MarkdownManager {
+   /**
+    * Parse markdown string into Tiptap JSON document using registered extension handlers.
+    */
+-  parse(markdown: string): JSONContent;
++  parse(markdown: string, boundary?: SourceBoundary): JSONContent;
+   /**
+    * Convert an array of marked tokens into Tiptap JSON nodes using registered extension handlers.
+    */
+@@ -96,6 +116,7 @@ declare class MarkdownManager {
+    * Parse a single token into Tiptap JSON using the appropriate registered handler.
+    */
+   private parseToken;
++  private parseTokenContent;
+   private lastParseResult;
+   /**
+    * Parse a list token, handling mixed bullet and task list items by splitting them into separate lists.
+@@ -122,11 +143,13 @@ declare class MarkdownManager {
+    * Parse inline tokens (bold, italic, links, etc.) into text nodes with marks.
+    * This is the complex part that handles mark nesting and boundaries.
+    */
+-  private parseInlineTokens;
++  private parseTextToken;
++    private parseInlineTokens;
+   /**
+    * Apply a mark to content nodes.
+    */
+-  private applyMarkToContent; /**
++  private cloneParseNode;
++    private applyMarkToContent; /**
+    * Check if a parse result represents a mark to be applied.
+    */
+   private isMarkResult;
+@@ -159,6 +182,7 @@ declare class MarkdownManager {
+    *   toInlineContent([{ type: 'paragraph', content: [{ type: 'text', text: 'hi' }] }])
+    *   // → [{ type: 'text', text: 'hi' }]
+    */
++  protected parseHTMLContent(html: string, token: MarkdownToken): JSONContent;
+   private toInlineContent;
+   /**
+    * Collect the names of the node types the schema treats as inline. Result is
+@@ -237,6 +261,10 @@ declare class MarkdownManager {
+    * Render an array of nodes while properly tracking mark boundaries.
+    * This handles cases where marks span across multiple text nodes.
+    */
++  protected getRenderTextPosition(node: JSONContent, input: string): { position: number; finish(position: number): void } | undefined;
++  protected collapseEmptyOutput(): boolean;
++  protected onRenderEmpty(): void;
++  protected onRenderNode(node: JSONContent, parent: JSONContent | undefined, from: number, to: number): void;
+   private renderNodesWithMarkBoundaries;
+   /**
+    * Get the opening markdown syntax for a mark type.
+@@ -360,7 +388,7 @@ declare const Markdown: Extension<MarkdownExtensionOptions, MarkdownExtensionSto
+  * @param tokens The marked token stream to normalize.
+  * @returns A new token array with absorbed blank lines as `space` tokens.
+  */
+-declare function extractAbsorbedBlankLines(tokens: MarkdownToken[]): MarkdownToken[];
++declare function extractAbsorbedBlankLines(tokens: MarkdownToken[], onDerive?: (token: MarkdownToken, parent: MarkdownToken, from: number, to: number, copiedText?: true) => void): MarkdownToken[];
+ /**
+  * Wraps each line of the content with the given prefix.
+  * @param prefix The prefix to wrap each line with.
+diff --git a/node_modules/@tiptap/markdown/dist/index.js b/node_modules/@tiptap/markdown/dist/index.js
+index 76a9e77..3d96c70 100644
+--- a/node_modules/@tiptap/markdown/dist/index.js
++++ b/node_modules/@tiptap/markdown/dist/index.js
+@@ -16,19 +16,23 @@ const TRAILING_BLANK_LINES = /\n[^\S\n]*(?:\n[^\S\n]*)+$/;
+ * @param tokens The marked token stream to normalize.
+ * @returns A new token array with absorbed blank lines as `space` tokens.
+ */
+-function extractAbsorbedBlankLines(tokens) {
++function extractAbsorbedBlankLines(tokens, onDerive) {
+ 	return tokens.flatMap((token, index) => {
+ 		var _tokens;
+ 		if (token.type === "space" || ((_tokens = tokens[index + 1]) === null || _tokens === void 0 ? void 0 : _tokens.type) === "space") return [token];
+-		const trailingBlankLines = (token.raw || "").match(TRAILING_BLANK_LINES);
+-		if (!trailingBlankLines) return [token];
+-		return [{
++		const trailingBlankLines = (token.raw || "").slice(token.sourceContentEnd ?? 0).match(TRAILING_BLANK_LINES);
++		if (!trailingBlankLines || token.sourceContentEnd >= (token.raw || "").length) return [token];
++		const derived = [{
+ 			...token,
+ 			raw: (token.raw || "").slice(0, -trailingBlankLines[0].length)
+ 		}, {
+ 			type: "space",
+ 			raw: trailingBlankLines[0]
+ 		}];
++		const boundary = (token.raw || "").length - trailingBlankLines[0].length;
++		onDerive?.(derived[0], token, 0, boundary, true);
++		onDerive?.(derived[1], token, boundary, (token.raw || "").length);
++		return derived;
+ 	});
+ }
+ /**
+@@ -330,6 +334,7 @@ function htmlContainsUnrecognizedTag(html, schemaTags) {
+ //#endregion
+ //#region src/MarkdownManager.ts
+ var MarkdownManager = class {
++	usedSourceBoundaries = new WeakSet();
+ 	/**
+ 	* Create a MarkdownManager.
+ 	* @param options.marked Optional marked instance to use (injected).
+@@ -338,6 +343,7 @@ var MarkdownManager = class {
+ 	* @param options.extensions An array of Tiptap extensions to register for markdown parsing and rendering.
+ 	*/
+ 	constructor(options) {
++		this.onParse = options?.onParse;
+ 		var _options$marked, _options$indentation$, _options$indentation, _options$indentation$2, _options$indentation2;
+ 		this.activeParseLexer = null;
+ 		this.extensionRanks = /* @__PURE__ */ new Map();
+@@ -416,15 +422,33 @@ var MarkdownManager = class {
+ 	createLexer() {
+ 		return new this.markedInstance.Lexer(this.markedInstance.defaults);
+ 	}
+-	createTokenizerHelpers(lexer) {
++	createTokenizerHelpers(lexer, context = lexer.sourceContext) {
++		const parse = (kind, src, source) => {
++			const tokens = [];
++			if (source && context && lexer.onSource) lexer.onSource({ kind: "input", tokens, frame: context.frame, from: context.from + source.from, to: context.from + source.to });
++			return lexer[kind](src, tokens);
++		};
+ 		return {
+-			inlineTokens: (src) => lexer.inlineTokens(src),
+-			blockTokens: (src) => lexer.blockTokens(src)
++			claimSourcePoint: () => { const boundary=lexer.sourceParagraph; if(!boundary||!context||boundary.frame!==context.frame||boundary.taken)throw new Error("Tokenizer has no pending source boundary");boundary.taken=true;boundary.affinity=-1; },
++			sourcePoint: () => lexer.sourceParagraph && context && lexer.sourceParagraph.frame === context.frame && !lexer.sourceParagraph.taken ? lexer.sourceParagraph.point-context.from : undefined,
++			withSource: (src, segments) => {
++				const tokens = [];
++				const frame = { source: src, tokens };
++				if (context && lexer.onSource) {
++					lexer.onSource({kind:"mappedInput",tokens,frame:context.frame,segments:segments.map(segment=>({...segment,parentFrom:context.from+segment.parentFrom,parentTo:context.from+segment.parentTo}))});
++					lexer.onSource({kind:"frame",frame});
++				}
++				return this.createTokenizerHelpers(lexer,{frame,from:0});
++			},
++			inlineTokens: (src, source) => parse("inlineTokens", src, source),
++			blockTokens: (src, source) => parse("blockTokens", src, source)
+ 		};
+ 	}
+-	tokenizeInline(src) {
+-		var _this$activeParseLexe;
+-		return ((_this$activeParseLexe = this.activeParseLexer) !== null && _this$activeParseLexe !== void 0 ? _this$activeParseLexe : this.createLexer()).inlineTokens(src);
++	tokenizeInline(src, source) {
++		const lexer = this.activeParseLexer ?? this.createLexer();
++		const tokens = [];
++		if (source) lexer.onSource?.({kind:"sliceInput",tokens,sourceTokens:source.tokens,from:source.from,to:source.to});
++		return lexer.inlineTokens(src,tokens);
+ 	}
+ 	/**
+ 	* Register a custom tokenizer with marked.js for parsing non-standard markdown syntax.
+@@ -489,7 +513,11 @@ var MarkdownManager = class {
+ 	serialize(docOrContent) {
+ 		if (!docOrContent) return "";
+ 		const result = this.renderNodes(docOrContent, docOrContent);
+-		return this.isEmptyOutput(result) ? "" : result;
++		if (this.isEmptyOutput(result) && this.collapseEmptyOutput()) {
++			this.onRenderEmpty();
++			return "";
++		}
++		return result;
+ 	}
+ 	/**
+ 	* Check if the markdown output represents an empty document.
+@@ -503,18 +531,25 @@ var MarkdownManager = class {
+ 	/**
+ 	* Parse markdown string into Tiptap JSON document using registered extension handlers.
+ 	*/
+-	parse(markdown) {
++	parse(markdown, boundary) {
+ 		if (!this.hasMarked()) throw new Error("No marked instance available for parsing");
++		if(boundary){
++			if(!Number.isInteger(boundary.point)||boundary.point<0||boundary.point>markdown.replace(/\r\n?/g,"\n").length)throw new RangeError("Source boundary is outside normalized parser input");
++			if(boundary.frame||boundary.taken||this.usedSourceBoundaries.has(boundary))throw new Error("Source boundary has already been used");
++			this.usedSourceBoundaries.add(boundary);
++		}
+ 		const previousParseLexer = this.activeParseLexer;
+ 		const parseLexer = this.createLexer();
++		parseLexer.sourceParagraph = boundary;
+ 		this.activeParseLexer = parseLexer;
+ 		try {
+ 			const tokens = parseLexer.lex(markdown);
+-			return {
+-				type: "doc",
+-				content: this.parseTokens(tokens, true)
+-			};
++			const document = { type: "doc", content: this.parseTokens(tokens, true) };
++			this.onParse?.({ kind: "document", tokens, document });
++			return document;
+ 		} finally {
++			parseLexer.sourceParagraph = undefined;
++			if(boundary)delete boundary.frame;
+ 			this.activeParseLexer = previousParseLexer;
+ 		}
+ 	}
+@@ -522,7 +557,7 @@ var MarkdownManager = class {
+ 	* Convert an array of marked tokens into Tiptap JSON nodes using registered extension handlers.
+ 	*/
+ 	parseTokens(tokens, parseImplicitEmptyParagraphs = false) {
+-		const normalizedTokens = parseImplicitEmptyParagraphs ? extractAbsorbedBlankLines(tokens) : tokens;
++		const normalizedTokens = parseImplicitEmptyParagraphs ? extractAbsorbedBlankLines(tokens, (token, parent, from, to, copiedText) => this.onParse?.({ kind: "derive", token, parent, from, to, copiedText })) : tokens;
+ 		const nonSpaceTokenIndexes = normalizedTokens.reduce((indexes, token, index) => {
+ 			if (token.type !== "space") indexes.push(index);
+ 			return indexes;
+@@ -537,7 +572,9 @@ var MarkdownManager = class {
+ 			if (parseImplicitEmptyParagraphs && token.type === "space") {
+ 				var _nonSpaceTokenIndexes;
+ 				const nextNonSpaceTokenIndex = (_nonSpaceTokenIndexes = nonSpaceTokenIndexes[nextNonSpaceTokenPointer]) !== null && _nonSpaceTokenIndexes !== void 0 ? _nonSpaceTokenIndexes : -1;
+-				return this.createImplicitEmptyParagraphsFromSpace(token, previousNonSpaceTokenIndex, nextNonSpaceTokenIndex);
++				const nodes = this.createImplicitEmptyParagraphsFromSpace(token, previousNonSpaceTokenIndex, nextNonSpaceTokenIndex);
++				this.onParse?.({ kind: "token", token, nodes });
++				return nodes;
+ 			}
+ 			const parsed = this.parseToken(token, parseImplicitEmptyParagraphs);
+ 			if (parsed === null) return [];
+@@ -548,10 +585,13 @@ var MarkdownManager = class {
+ 		const separatorCount = this.countParagraphSeparators(token.raw || "");
+ 		if (separatorCount === 0) return [];
+ 		const emptyParagraphCount = Math.max(separatorCount - (previousNonSpaceTokenIndex === -1 || nextNonSpaceTokenIndex === -1 ? 0 : 1), 0);
+-		return Array.from({ length: emptyParagraphCount }, () => ({
+-			type: "paragraph",
+-			content: []
+-		}));
++		const separators = [...(token.raw || "").matchAll(/\r?\n\r?\n/g)];
++		return Array.from({ length: emptyParagraphCount }, (_, index) => {
++			const node = { type: "paragraph", content: [] };
++			const separator = separators[index + (previousNonSpaceTokenIndex === -1 || nextNonSpaceTokenIndex === -1 ? 0 : 1)];
++			this.onParse?.({ kind: "empty", token, node, from: separator.index, to: separator.index + separator[0].length });
++			return node;
++		});
+ 	}
+ 	countParagraphSeparators(raw) {
+ 		return (raw.replace(/\r\n/g, "\n").match(/\n\n/g) || []).length;
+@@ -560,6 +600,11 @@ var MarkdownManager = class {
+ 	* Parse a single token into Tiptap JSON using the appropriate registered handler.
+ 	*/
+ 	parseToken(token, parseImplicitEmptyParagraphs = false) {
++		const result = this.parseTokenContent(token, parseImplicitEmptyParagraphs);
++		this.onParse?.({ kind: "token", token, nodes: result === null ? [] : Array.isArray(result) ? result : [result] });
++		return result;
++	}
++	parseTokenContent(token, parseImplicitEmptyParagraphs = false) {
+ 		if (!token.type) return null;
+ 		if (token.type === "list") return this.parseListToken(token);
+ 		const handlers = this.getHandlersForToken(token.type);
+@@ -629,6 +674,7 @@ var MarkdownManager = class {
+ 					nestedTokens
+ 				};
+ 			}
++			if (processedItem !== item) this.onParse?.({ kind: "derive", token: processedItem, parent: item, from: 0, to: (item.raw || "").length });
+ 			const itemType = isTask ? "taskList" : "list";
+ 			if (currentType !== itemType) {
+ 				if (currentGroup.length > 0) groups.push({
+@@ -644,6 +690,7 @@ var MarkdownManager = class {
+ 			items: currentGroup
+ 		});
+ 		const results = [];
++		let itemOffset = 0;
+ 		for (let i = 0; i < groups.length; i += 1) {
+ 			const group = groups[i];
+ 			const subToken = {
+@@ -651,6 +698,8 @@ var MarkdownManager = class {
+ 				type: group.type,
+ 				items: group.items
+ 			};
++			this.onParse?.({ kind: "listGroup", token: subToken, parent: token, items: token.items.slice(itemOffset, itemOffset + group.items.length) });
++			itemOffset += group.items.length;
+ 			const parsed = this.parseToken(subToken);
+ 			if (parsed) {
+ 				if (Array.isArray(parsed)) results.push(...parsed);
+@@ -689,7 +738,7 @@ var MarkdownManager = class {
+ 	createParseHelpers() {
+ 		return {
+ 			parseInline: (tokens) => this.parseInlineTokens(tokens),
+-			tokenizeInline: (src) => this.tokenizeInline(src),
++			tokenizeInline: (src, source) => this.tokenizeInline(src, source),
+ 			parseChildren: (tokens) => this.parseTokens(tokens),
+ 			parseBlockChildren: (tokens) => this.parseTokens(tokens, true),
+ 			createTextNode: (text, marks) => {
+@@ -708,6 +757,8 @@ var MarkdownManager = class {
+ 				if (!attrs || Object.keys(attrs).length === 0) delete node.attrs;
+ 				return node;
+ 			},
++			createTokenText: (token) => this.parseTextToken(token),
++			applyNodeMarks: (node, marks) => this.cloneParseNode(node, {...node, marks}),
+ 			applyMark: (markType, content, attrs) => ({
+ 				mark: markType,
+ 				content,
+@@ -725,18 +776,20 @@ var MarkdownManager = class {
+ 	* Parse inline tokens (bold, italic, links, etc.) into text nodes with marks.
+ 	* This is the complex part that handles mark nesting and boundaries.
+ 	*/
++	parseTextToken(token) {
++ const input=token.text||"";const replacements=[];
++ const output=token.type==="text"?decodeHtmlEntities(input,this.onParse?(from,to,text)=>replacements.push({from,to,text}):undefined):input;
++ const node={type:"text",text:output};this.onParse?.({kind:"text",token,node,input,output,replacements});return node;
++ }
+ 	parseInlineTokens(tokens) {
+ 		const result = [];
++		if(!tokens.length)this.onParse?.({kind:"inline",content:result,tokens,fromToken:0,toToken:0,fromNode:0,toNode:0});
+ 		for (let i = 0; i < tokens.length; i += 1) {
+ 			const token = tokens[i];
+-			if (token.type === "text") result.push({
+-				type: "text",
+-				text: decodeHtmlEntities(token.text || "")
+-			});
+-			else if (token.type === "escape") result.push({
+-				type: "text",
+-				text: token.text || ""
+-			});
++			const firstToken = i;
++			const firstNode = result.length;
++			if (token.type === "text") result.push(this.parseTextToken(token));
++			else if (token.type === "escape") result.push(this.parseTextToken(token));
+ 			else if (token.type === "html") {
+ 				var _ref, _token$raw;
+ 				const raw = ((_ref = (_token$raw = token.raw) !== null && _token$raw !== void 0 ? _token$raw : token.text) !== null && _ref !== void 0 ? _ref : "").toString();
+@@ -766,6 +819,7 @@ var MarkdownManager = class {
+ 							text: mergedRaw,
+ 							block: false
+ 						};
++						this.onParse?.({ kind: "concat", token: mergedToken, inputs: tokens.slice(i, foundIndex + 1).map((token, index) => ({ token, field: token.raw != null ? "raw" : "text", length: parts[index].length })) });
+ 						const parsed = this.parseHTMLToken(mergedToken);
+ 						if (parsed) {
+ 							const normalized = this.normalizeParseResult(parsed);
+@@ -773,6 +827,7 @@ var MarkdownManager = class {
+ 							else if (normalized) result.push(normalized);
+ 						}
+ 						i = foundIndex;
++						this.onParse?.({ kind: "inline", content: result, tokens, fromToken: firstToken, toToken: i + 1, fromNode: firstNode, toNode: result.length });
+ 						continue;
+ 					}
+ 				}
+@@ -797,6 +852,7 @@ var MarkdownManager = class {
+ 					}
+ 				} else if (token.tokens) result.push(...this.parseInlineTokens(token.tokens));
+ 			}
++			this.onParse?.({ kind: "inline", content: result, tokens, fromToken: firstToken, toToken: i + 1, fromNode: firstNode, toNode: result.length });
+ 		}
+ 		for (let i = result.length - 1; i > 0; i -= 1) {
+ 			const current = result[i];
+@@ -805,6 +861,7 @@ var MarkdownManager = class {
+ 				const currentMarks = current.marks || [];
+ 				const previousMarks = previous.marks || [];
+ 				if (marksEqual(currentMarks, previousMarks)) {
++					this.onParse?.({kind:"joinText",target:previous,source:current,offset:(previous.text||"").length});
+ 					previous.text = (previous.text || "") + (current.text || "");
+ 					result.splice(i, 1);
+ 				}
+@@ -815,6 +872,7 @@ var MarkdownManager = class {
+ 	/**
+ 	* Apply a mark to content nodes.
+ 	*/
++	cloneParseNode(source,node) {this.onParse?.({kind:"clone",source,node});return node;}
+ 	applyMarkToContent(markType, content, attrs) {
+ 		return content.map((node) => {
+ 			if (node.type === "text") {
+@@ -823,15 +881,15 @@ var MarkdownManager = class {
+ 					type: markType,
+ 					attrs
+ 				} : { type: markType };
+-				return {
++				return this.cloneParseNode(node, {
+ 					...node,
+ 					marks: [...existingMarks, newMark]
+-				};
++				});
+ 			}
+-			return {
++			return this.cloneParseNode(node, {
+ 				...node,
+ 				content: node.content ? this.applyMarkToContent(markType, node.content, attrs) : void 0
+-			};
++			});
+ 		});
+ 	}
+ 	isMarkResult(result) {
+@@ -859,15 +917,9 @@ var MarkdownManager = class {
+ 				attrs: { level: token.depth || 1 },
+ 				content: token.tokens ? this.parseInlineTokens(token.tokens) : []
+ 			};
+-			case "text": return {
+-				type: "text",
+-				text: decodeHtmlEntities(token.text || "")
+-			};
++			case "text": return this.parseTextToken(token);
+ 			case "html": return this.parseHTMLToken(token);
+-			case "escape": return {
+-				type: "text",
+-				text: token.text || ""
+-			};
++			case "escape": return this.parseTextToken(token);
+ 			case "space": return null;
+ 			default:
+ 				if (token.tokens) return this.parseTokens(token.tokens, parseImplicitEmptyParagraphs);
+@@ -887,10 +939,10 @@ var MarkdownManager = class {
+ 	parseHTMLToken(token) {
+ 		const html = token.text || token.raw || "";
+ 		if (!html.trim()) return null;
+-		if (this.isUnrecognizedHtml(html)) return this.htmlAsLiteralText(html, !!token.block);
+-		if (typeof window === "undefined" || typeof window.DOMParser === "undefined") return this.htmlAsLiteralText(html, !!token.block);
++		if (this.isUnrecognizedHtml(html)) return this.htmlAsLiteralText(html, !!token.block, token);
++		if (typeof window === "undefined" || typeof window.DOMParser === "undefined") return this.htmlAsLiteralText(html, !!token.block, token);
+ 		try {
+-			const parsed = generateJSON(html, this.baseExtensions);
++			const parsed = this.parseHTMLContent(html, token);
+ 			if (parsed.type === "doc" && parsed.content) {
+ 				if (token.block) return parsed.content;
+ 				const inlineContent = this.toInlineContent(parsed.content);
+@@ -911,6 +963,7 @@ var MarkdownManager = class {
+ 	*   toInlineContent([{ type: 'paragraph', content: [{ type: 'text', text: 'hi' }] }])
+ 	*   // → [{ type: 'text', text: 'hi' }]
+ 	*/
++	parseHTMLContent(html, _token) { return generateJSON(html, this.baseExtensions); }
+ 	toInlineContent(content) {
+ 		const inlineTypes = this.getInlineNodeTypes();
+ 		return content.flatMap((node) => {
+@@ -1000,20 +1053,12 @@ var MarkdownManager = class {
+ 	*   htmlAsLiteralText('<enter foo>', true)
+ 	*   // → { type: 'paragraph', content: [{ type: 'text', text: '<enter foo>' }] }
+ 	*/
+-	htmlAsLiteralText(html, isBlock) {
++	htmlAsLiteralText(html, isBlock, token) {
+ 		const text = html.replace(/\s+$/, "");
+ 		if (!text) return null;
+-		if (isBlock) return {
+-			type: "paragraph",
+-			content: [{
+-				type: "text",
+-				text
+-			}]
+-		};
+-		return {
+-			type: "text",
+-			text
+-		};
++		const node = { type: "text", text };
++		this.onParse?.({ kind: "text", token, node, input: html, output: text, replacements: text.length < html.length ? [{ from: text.length, to: html.length, text: "" }] : [] });
++		return isBlock ? { type: "paragraph", content: [node] } : node;
+ 	}
+ 	/**
+ 	* Encode HTML entities in text unless the node is inside a code context
+@@ -1086,8 +1131,17 @@ var MarkdownManager = class {
+ 	* Render an array of nodes while properly tracking mark boundaries.
+ 	* This handles cases where marks span across multiple text nodes.
+ 	*/
++	getRenderTextPosition(_node, _input) { return undefined; }
++	collapseEmptyOutput() { return true; }
++	onRenderEmpty() {}
++	onRenderNode(_node, _parent, _from, _to) {}
+ 	renderNodesWithMarkBoundaries(nodes, parentNode, separator = "", level = 0) {
+ 		const result = [];
++		let outputLength = 0;
++		const append = (value) => {
++			outputLength += (result.length ? separator.length : 0) + value.length;
++			result.push(value);
++		};
+ 		const activeMarks = /* @__PURE__ */ new Map();
+ 		const reopenWithHtmlOnNextOpen = /* @__PURE__ */ new Set();
+ 		const markOpeningModes = /* @__PURE__ */ new Map();
+@@ -1096,6 +1150,9 @@ var MarkdownManager = class {
+ 			if (!node.type) return;
+ 			if (node.type === "text") {
+ 				let textContent = this.encodeTextForMarkdown(node.text || "", node, parentNode);
++				const trace = this.getRenderTextPosition(node, textContent);
++				let point = trace?.position;
++				let middlePoint, leadingPoint, trailingPoint;
+ 				let currentMarks = new Map((node.marks || []).map((mark) => [mark.type, mark]));
+ 				let marksToOpen = this.getMarksToOpenForSerialization(activeMarks, currentMarks, nextNode);
+ 				let marksToClose = findMarksToClose(currentMarks, nextNode);
+@@ -1115,6 +1172,7 @@ var MarkdownManager = class {
+ 					if (middleTrailingMatch) {
+ 						middleTrailingWhitespace = middleTrailingMatch[1];
+ 						textContent = textContent.slice(0, -middleTrailingWhitespace.length);
++				    if (point !== undefined && point > textContent.length) { middlePoint = point - textContent.length; point = undefined; }
+ 					}
+ 				}
+ 				if (!hasCrossedBoundary) marksToClose.slice().reverse().forEach((markType) => {
+@@ -1133,12 +1191,13 @@ var MarkdownManager = class {
+ 					if (leadingMatch) {
+ 						leadingWhitespace = leadingMatch[1];
+ 						textContent = textContent.slice(leadingWhitespace.length);
++				    if (point !== undefined) { if (point < leadingWhitespace.length) { leadingPoint = point; point = undefined; } else point -= leadingWhitespace.length; }
+ 					}
+ 				}
+ 				marksToOpen.forEach(({ type, mark }) => {
+ 					const openingMode = reopenWithHtmlOnNextOpen.has(type) ? "html" : "markdown";
+ 					const openMarkdown = this.getMarkOpening(type, mark, openingMode);
+-					if (openMarkdown) textContent = openMarkdown + textContent;
++					if (openMarkdown) { textContent = openMarkdown + textContent; if (point !== undefined) point += openMarkdown.length; }
+ 					markOpeningModes.set(type, openingMode);
+ 					reopenWithHtmlOnNextOpen.delete(type);
+ 				});
+@@ -1146,6 +1205,7 @@ var MarkdownManager = class {
+ 					activeMarks.set(type, mark);
+ 				});
+ 				textContent = leadingWhitespace + textContent;
++				if (leadingPoint !== undefined) point = leadingPoint; else if (point !== undefined) point += leadingWhitespace.length;
+ 				let marksToCloseAtEnd;
+ 				if (hasCrossedBoundary) {
+ 					const nextMarkTypes = new Set(((nextNode === null || nextNode === void 0 ? void 0 : nextNode.marks) || []).map((mark) => mark.type));
+@@ -1162,6 +1222,7 @@ var MarkdownManager = class {
+ 					if (trailingMatch) {
+ 						trailingWhitespace = trailingMatch[1];
+ 						textContent = textContent.slice(0, -trailingWhitespace.length);
++				    if (point !== undefined && point > textContent.length) { trailingPoint = point - textContent.length; point = undefined; }
+ 					}
+ 				}
+ 				marksToCloseAtEnd.forEach((markType) => {
+@@ -1172,9 +1233,12 @@ var MarkdownManager = class {
+ 					activeMarks.delete(markType);
+ 					markOpeningModes.delete(markType);
+ 				});
++				if (trailingPoint !== undefined) point = textContent.length + trailingPoint;
+ 				textContent += trailingWhitespace;
++				if (middlePoint !== undefined) point = textContent.length + middlePoint;
+ 				textContent += middleTrailingWhitespace;
+-				result.push(textContent);
++				if (point !== undefined) trace?.finish(outputLength + (result.length ? separator.length : 0) + point);
++				append(textContent);
+ 			} else {
+ 				const nodeMarkTypes = new Set((node.marks || []).map((mark) => mark.type));
+ 				const marksToReopen = /* @__PURE__ */ new Map();
+@@ -1197,7 +1261,9 @@ var MarkdownManager = class {
+ 					markOpeningModes.set(markType, openingMode);
+ 					return this.getMarkOpening(markType, mark, openingMode);
+ 				});
+-				result.push(beforeMarkdown + nodeContent + afterMarkdown);
++				const from = outputLength + (result.length ? separator.length : 0) + beforeMarkdown.length;
++				this.onRenderNode(node, parentNode, from, from + nodeContent.length);
++				append(beforeMarkdown + nodeContent + afterMarkdown);
+ 			}
+ 		});
+ 		return result.join(separator);
+@@ -1403,5 +1469,3 @@ const Markdown = Extension.create({
+ });
+ //#endregion
+ export { Markdown, MarkdownManager, assumeContentType, closeMarksBeforeNode, extractAbsorbedBlankLines, findMarksToClose, findMarksToCloseAtEnd, findMarksToOpen, isTaskItem, reopenMarksAfterNode, wrapInMarkdownBlock };
+-
+-//# sourceMappingURL=index.js.map
+\ No newline at end of file
+diff --git a/node_modules/@tiptap/markdown/src/MarkdownManager.ts b/node_modules/@tiptap/markdown/src/MarkdownManager.ts
+index 7a28740..7d22051 100644
+--- a/node_modules/@tiptap/markdown/src/MarkdownManager.ts
++++ b/node_modules/@tiptap/markdown/src/MarkdownManager.ts
+@@ -1,3 +1,4 @@
++import type { SourceBoundary } from "marked"
+ import {
+   type AnyExtension,
+   type ExtendableConfig,
+@@ -35,7 +36,25 @@ import {
+ } from './utils.js'
+ import { htmlContainsUnrecognizedTag } from './utils/htmlTagDetection.js'
+ 
++/** Read-only observations of parser-owned token derivation and node creation.
++ * Offsets in derive events refer to the parent's normalized raw, in UTF-16.
++ * Consumers must not mutate tokens or nodes from these callbacks.
++ */
++export type MarkdownParseEvent =
++  | { kind: 'concat'; token: MarkdownToken; inputs: { token: MarkdownToken; field: 'raw' | 'text'; length: number }[] }
++  | { kind: 'clone'; source: JSONContent; node: JSONContent }
++  | { kind: 'joinText'; target: JSONContent; source: JSONContent; offset: number }
++  | { kind: 'text'; token: MarkdownToken; node: JSONContent; input: string; output: string; replacements: readonly { from: number; to: number; text: string }[] }
++  | { kind: 'inline'; content: JSONContent[]; tokens: MarkdownToken[]; fromToken: number; toToken: number; fromNode: number; toNode: number }
++  | { kind: 'derive'; token: MarkdownToken; parent: MarkdownToken; from: number; to: number; copiedText?: true }
++  | { kind: 'listGroup'; token: MarkdownToken; parent: MarkdownToken; items: MarkdownToken[] }
++  | { kind: 'token'; token: MarkdownToken; nodes: JSONContent[] }
++  | { kind: 'empty'; token: MarkdownToken; node: JSONContent; from: number; to: number }
++  | { kind: 'document'; tokens: MarkdownToken[]; document: JSONContent }
++
+ export class MarkdownManager {
++  private readonly usedSourceBoundaries = new WeakSet<SourceBoundary>()
++  private readonly onParse?: (event: MarkdownParseEvent) => void
+   private markedInstance: typeof marked
+   private activeParseLexer: Lexer | null = null
+   private registry: Map<string, MarkdownExtensionSpec[]>
+@@ -70,11 +89,13 @@ export class MarkdownManager {
+    * @param options.extensions An array of Tiptap extensions to register for markdown parsing and rendering.
+    */
+   constructor(options?: {
++    onParse?: (event: MarkdownParseEvent) => void
+     marked?: typeof marked
+     markedOptions?: Parameters<typeof marked.setOptions>[0]
+     indentation?: { style?: 'space' | 'tab'; size?: number }
+     extensions: AnyExtension[]
+   }) {
++    this.onParse = options?.onParse
+     this.markedInstance = options?.marked ?? marked
+     this.indentStyle = options?.indentation?.style ?? 'space'
+     this.indentSize = options?.indentation?.size ?? 2
+@@ -197,15 +218,41 @@ export class MarkdownManager {
+     return new this.markedInstance.Lexer(this.markedInstance.defaults)
+   }
+ 
+-  private createTokenizerHelpers(lexer: Lexer): MarkdownLexerConfiguration {
++  private createTokenizerHelpers(lexer: Lexer, context = lexer.sourceContext): MarkdownLexerConfiguration {
++    const parse = (kind: 'inlineTokens' | 'blockTokens', src: string, source?: { from: number; to: number }) => {
++      const tokens: Token[] = []
++      if (source && context && lexer.onSource) {
++        lexer.onSource({ kind: 'input', tokens, frame: context.frame, from: context.from + source.from, to: context.from + source.to })
++      }
++      return lexer[kind](src, tokens)
++    }
+     return {
+-      inlineTokens: (src: string) => lexer.inlineTokens(src),
+-      blockTokens: (src: string) => lexer.blockTokens(src),
++      sourcePoint: () => lexer.sourceParagraph && context && lexer.sourceParagraph.frame === context.frame && !lexer.sourceParagraph.taken ? lexer.sourceParagraph.point - context.from : undefined,
++      claimSourcePoint: () => {
++        const boundary = lexer.sourceParagraph
++        if (!boundary || !context || boundary.frame !== context.frame || boundary.taken) throw new Error('Tokenizer has no pending source boundary')
++        boundary.taken = true
++        boundary.affinity = -1
++      },
++      withSource: (src, segments) => {
++        const tokens: Token[] = []
++        const frame = { source: src, tokens }
++        if (context && lexer.onSource) {
++          lexer.onSource({ kind: 'mappedInput', tokens, frame: context.frame, segments: segments.map(segment => ({ ...segment, parentFrom: context.from + segment.parentFrom, parentTo: context.from + segment.parentTo })) })
++          lexer.onSource({ kind: 'frame', frame })
++        }
++        return this.createTokenizerHelpers(lexer, { frame, from: 0 })
++      },
++      inlineTokens: (src, source) => parse('inlineTokens', src, source),
++      blockTokens: (src, source) => parse('blockTokens', src, source),
+     }
+   }
+ 
+-  private tokenizeInline(src: string): MarkdownToken[] {
+-    return (this.activeParseLexer ?? this.createLexer()).inlineTokens(src) as MarkdownToken[]
++  private tokenizeInline(src: string, source?: { tokens: MarkdownToken[]; from: number; to: number }): MarkdownToken[] {
++    const lexer = this.activeParseLexer ?? this.createLexer()
++    const tokens: Token[] = []
++    if (source) lexer.onSource?.({ kind: 'sliceInput', tokens, sourceTokens: source.tokens as Token[], from: source.from, to: source.to })
++    return lexer.inlineTokens(src, tokens) as MarkdownToken[]
+   }
+ 
+   /**
+@@ -309,7 +356,11 @@ export class MarkdownManager {
+ 
+     const result = this.renderNodes(docOrContent, docOrContent)
+     // Return empty string if result is only whitespace entities or non-breaking spaces
+-    return this.isEmptyOutput(result) ? '' : result
++    if (this.isEmptyOutput(result) && this.collapseEmptyOutput()) {
++      this.onRenderEmpty()
++      return ''
++    }
++    return result
+   }
+ 
+   /**
+@@ -333,13 +384,19 @@ export class MarkdownManager {
+   /**
+    * Parse markdown string into Tiptap JSON document using registered extension handlers.
+    */
+-  parse(markdown: string): JSONContent {
++  parse(markdown: string, boundary?: SourceBoundary): JSONContent {
+     if (!this.hasMarked()) {
+       throw new Error('No marked instance available for parsing')
+     }
+ 
++    if (boundary) {
++      if (!Number.isInteger(boundary.point) || boundary.point < 0 || boundary.point > markdown.replace(/\r\n?/g, '\n').length) throw new RangeError('Source boundary is outside normalized parser input')
++      if (boundary.frame || boundary.taken || this.usedSourceBoundaries.has(boundary)) throw new Error('Source boundary has already been used')
++      this.usedSourceBoundaries.add(boundary)
++    }
+     const previousParseLexer = this.activeParseLexer
+     const parseLexer = this.createLexer()
++    parseLexer.sourceParagraph = boundary
+ 
+     this.activeParseLexer = parseLexer
+ 
+@@ -352,11 +409,12 @@ export class MarkdownManager {
+       const content = this.parseTokens(tokens, true)
+ 
+       // Return a document node containing the parsed content
+-      return {
+-        type: 'doc',
+-        content,
+-      }
++      const document = { type: 'doc', content }
++      this.onParse?.({ kind: 'document', tokens, document })
++      return document
+     } finally {
++      parseLexer.sourceParagraph = undefined
++      if (boundary) delete boundary.frame
+       this.activeParseLexer = previousParseLexer
+     }
+   }
+@@ -370,7 +428,9 @@ export class MarkdownManager {
+   ): JSONContent[] {
+     // Normalize absorbed blank lines into `space` tokens so they survive round-trips.
+     const normalizedTokens = parseImplicitEmptyParagraphs
+-      ? extractAbsorbedBlankLines(tokens)
++      ? extractAbsorbedBlankLines(tokens, (token, parent, from, to, copiedText) =>
++          this.onParse?.({ kind: 'derive', token, parent, from, to, copiedText }),
++        )
+       : tokens
+ 
+     const nonSpaceTokenIndexes = normalizedTokens.reduce<number[]>((indexes, token, index) => {
+@@ -396,11 +456,13 @@ export class MarkdownManager {
+       if (parseImplicitEmptyParagraphs && token.type === 'space') {
+         const nextNonSpaceTokenIndex = nonSpaceTokenIndexes[nextNonSpaceTokenPointer] ?? -1
+ 
+-        return this.createImplicitEmptyParagraphsFromSpace(
++        const nodes = this.createImplicitEmptyParagraphsFromSpace(
+           token,
+           previousNonSpaceTokenIndex,
+           nextNonSpaceTokenIndex,
+         )
++        this.onParse?.({ kind: 'token', token, nodes })
++        return nodes
+       }
+ 
+       const parsed = this.parseToken(token, parseImplicitEmptyParagraphs)
+@@ -427,7 +489,13 @@ export class MarkdownManager {
+     const isBoundarySpace = previousNonSpaceTokenIndex === -1 || nextNonSpaceTokenIndex === -1
+     const emptyParagraphCount = Math.max(separatorCount - (isBoundarySpace ? 0 : 1), 0)
+ 
+-    return Array.from({ length: emptyParagraphCount }, () => ({ type: 'paragraph', content: [] }))
++    const separators = [...(token.raw || '').matchAll(/\r?\n\r?\n/g)]
++    return Array.from({ length: emptyParagraphCount }, (_, index) => {
++      const node = { type: 'paragraph', content: [] }
++      const separator = separators[index + (isBoundarySpace ? 0 : 1)]!
++      this.onParse?.({ kind: 'empty', token, node, from: separator.index!, to: separator.index! + separator[0].length })
++      return node
++    })
+   }
+ 
+   private countParagraphSeparators(raw: string): number {
+@@ -440,6 +508,15 @@ export class MarkdownManager {
+   private parseToken(
+     token: MarkdownToken,
+     parseImplicitEmptyParagraphs = false,
++  ): JSONContent | JSONContent[] | null {
++    const result = this.parseTokenContent(token, parseImplicitEmptyParagraphs)
++    this.onParse?.({ kind: 'token', token, nodes: result === null ? [] : Array.isArray(result) ? result : [result] })
++    return result
++  }
++
++  private parseTokenContent(
++    token: MarkdownToken,
++    parseImplicitEmptyParagraphs = false,
+   ): JSONContent | JSONContent[] | null {
+     if (!token.type) {
+       return null
+@@ -576,6 +653,10 @@ export class MarkdownManager {
+         }
+       }
+ 
++      if (processedItem !== item) {
++        this.onParse?.({ kind: 'derive', token: processedItem, parent: item, from: 0, to: (item.raw || '').length })
++      }
++
+       const itemType: 'list' | 'taskList' = isTask ? 'taskList' : 'list'
+ 
+       if (currentType !== itemType) {
+@@ -595,9 +676,12 @@ export class MarkdownManager {
+ 
+     // Parse each group as a separate token
+     const results: JSONContent[] = []
++    let itemOffset = 0
+     for (let i = 0; i < groups.length; i += 1) {
+       const group = groups[i]
+       const subToken = { ...token, type: group.type, items: group.items }
++      this.onParse?.({ kind: 'listGroup', token: subToken, parent: token, items: token.items.slice(itemOffset, itemOffset + group.items.length) })
++      itemOffset += group.items.length
+       const parsed = this.parseToken(subToken)
+       if (parsed) {
+         if (Array.isArray(parsed)) {
+@@ -659,7 +743,7 @@ export class MarkdownManager {
+   private createParseHelpers(): MarkdownParseHelpers {
+     return {
+       parseInline: (tokens: MarkdownToken[]) => this.parseInlineTokens(tokens),
+-      tokenizeInline: (src: string) => this.tokenizeInline(src),
++      tokenizeInline: (src, source) => this.tokenizeInline(src, source),
+       parseChildren: (tokens: MarkdownToken[]) => this.parseTokens(tokens),
+       parseBlockChildren: (tokens: MarkdownToken[]) => this.parseTokens(tokens, true),
+       createTextNode: (text: string, marks?: Array<{ type: string; attrs?: any }>) => {
+@@ -684,6 +768,8 @@ export class MarkdownManager {
+ 
+         return node
+       },
++      createTokenText: (token) => this.parseTextToken(token),
++      applyNodeMarks: (node, marks) => this.cloneParseNode(node, {...node, marks}),
+       applyMark: (markType: string, content: JSONContent[], attrs?: any) => ({
+         mark: markType,
+         content,
+@@ -703,26 +789,32 @@ export class MarkdownManager {
+    * Parse inline tokens (bold, italic, links, etc.) into text nodes with marks.
+    * This is the complex part that handles mark nesting and boundaries.
+    */
++  private parseTextToken(token: MarkdownToken): JSONContent {
++    const input = token.text || ''
++    const replacements: Array<{from: number; to: number; text: string}> = []
++    const output = token.type === "text" ? decodeHtmlEntities(input, this.onParse ? (from, to, text) => replacements.push({from, to, text}) : undefined) : input
++    const node = { type: 'text', text: output }
++    this.onParse?.({kind: 'text', token, node, input, output, replacements})
++    return node
++  }
++
+   private parseInlineTokens(tokens: MarkdownToken[]): JSONContent[] {
+     const result: JSONContent[] = []
++    if (!tokens.length) this.onParse?.({ kind: "inline", content: result, tokens, fromToken: 0, toToken: 0, fromNode: 0, toNode: 0 })
+ 
+     // Process tokens sequentially using an index so we can lookahead and
+     // merge split inline HTML fragments like: text / <em> / inner / </em> / text
+     for (let i = 0; i < tokens.length; i += 1) {
+       const token = tokens[i]
++      const firstToken = i
++      const firstNode = result.length
+ 
+       if (token.type === 'text') {
+         // Create text node – decode HTML entities so that e.g. `&lt;` displays as `<` in the editor
+-        result.push({
+-          type: 'text',
+-          text: decodeHtmlEntities(token.text || ''),
+-        })
++        result.push(this.parseTextToken(token))
+       } else if (token.type === 'escape') {
+         // Backslash-escaped character: produce a text node with the escaped character
+-        result.push({
+-          type: 'text',
+-          text: token.text || '',
+-        })
++        result.push(this.parseTextToken(token))
+       } else if (token.type === 'html') {
+         // Handle possible split inline HTML by attempting to detect an
+         // opening tag and searching forward for a matching closing tag.
+@@ -762,6 +854,7 @@ export class MarkdownManager {
+               block: false,
+             } as unknown as MarkdownToken
+ 
++            this.onParse?.({ kind: 'concat', token: mergedToken, inputs: tokens.slice(i, foundIndex + 1).map((token, index) => ({ token, field: token.raw != null ? 'raw' : 'text', length: parts[index].length })) })
+             const parsed = this.parseHTMLToken(mergedToken)
+             if (parsed) {
+               const normalized = this.normalizeParseResult(parsed as any)
+@@ -774,6 +867,7 @@ export class MarkdownManager {
+ 
+             // Advance i to the closing token
+             i = foundIndex
++            this.onParse?.({ kind: 'inline', content: result, tokens, fromToken: firstToken, toToken: i + 1, fromNode: firstNode, toNode: result.length })
+             continue
+           }
+         }
+@@ -813,6 +907,7 @@ export class MarkdownManager {
+           result.push(...this.parseInlineTokens(token.tokens))
+         }
+       }
++      this.onParse?.({ kind: 'inline', content: result, tokens, fromToken: firstToken, toToken: i + 1, fromNode: firstNode, toNode: result.length })
+     }
+ 
+     // Merge adjacent text nodes with the same marks. The marked tokenizer may
+@@ -829,6 +924,7 @@ export class MarkdownManager {
+         const previousMarks = previous.marks || []
+ 
+         if (marksEqual(currentMarks, previousMarks)) {
++          this.onParse?.({kind: 'joinText', target: previous, source: current, offset: (previous.text || '').length})
+           previous.text = (previous.text || '') + (current.text || '')
+           result.splice(i, 1)
+         }
+@@ -841,23 +937,28 @@ export class MarkdownManager {
+   /**
+    * Apply a mark to content nodes.
+    */
++  private cloneParseNode(source: JSONContent, node: JSONContent): JSONContent {
++    this.onParse?.({kind: 'clone', source, node})
++    return node
++  }
++
+   private applyMarkToContent(markType: string, content: JSONContent[], attrs?: any): JSONContent[] {
+     return content.map(node => {
+       if (node.type === 'text') {
+         // Add the mark to existing marks or create new marks array
+         const existingMarks = node.marks || []
+         const newMark = attrs ? { type: markType, attrs } : { type: markType }
+-        return {
++        return this.cloneParseNode(node, {
+           ...node,
+           marks: [...existingMarks, newMark],
+-        }
++        })
+       }
+ 
+       // For non-text nodes, recursively apply to content
+-      return {
++      return this.cloneParseNode(node, {
+         ...node,
+         content: node.content ? this.applyMarkToContent(markType, node.content, attrs) : undefined,
+-      }
++      })
+     })
+   } /**
+    * Check if a parse result represents a mark to be applied.
+@@ -906,10 +1007,7 @@ export class MarkdownManager {
+         }
+ 
+       case 'text':
+-        return {
+-          type: 'text',
+-          text: decodeHtmlEntities(token.text || ''),
+-        }
++        return this.parseTextToken(token)
+ 
+       case 'html':
+         // Parse HTML using extensions' parseHTML methods
+@@ -917,10 +1015,7 @@ export class MarkdownManager {
+ 
+       // handle Marked escape tokens as literal text (e.g. backslash-escaped characters)
+       case 'escape':
+-        return {
+-          type: 'text',
+-          text: token.text || '',
+-        }
++        return this.parseTextToken(token)
+ 
+       case 'space':
+         return null
+@@ -954,17 +1049,17 @@ export class MarkdownManager {
+     // If the HTML would parse to nothing meaningful, keep the original
+     // characters as literal text instead of dropping them.
+     if (this.isUnrecognizedHtml(html)) {
+-      return this.htmlAsLiteralText(html, !!token.block)
++      return this.htmlAsLiteralText(html, !!token.block, token)
+     }
+ 
+     // generateJSON requires window.DOMParser – treat recognized HTML as literal on the server
+     if (typeof window === 'undefined' || typeof window.DOMParser === 'undefined') {
+-      return this.htmlAsLiteralText(html, !!token.block)
++      return this.htmlAsLiteralText(html, !!token.block, token)
+     }
+ 
+     // Use generateJSON to parse the HTML using extensions' parseHTML rules
+     try {
+-      const parsed = generateJSON(html, this.baseExtensions)
++      const parsed = this.parseHTMLContent(html, token)
+ 
+       // If the result is a doc node, extract its content
+       if (parsed.type === 'doc' && parsed.content) {
+@@ -994,6 +1089,10 @@ export class MarkdownManager {
+    *   toInlineContent([{ type: 'paragraph', content: [{ type: 'text', text: 'hi' }] }])
+    *   // → [{ type: 'text', text: 'hi' }]
+    */
++  protected parseHTMLContent(html: string, _token: MarkdownToken): JSONContent {
++    return generateJSON(html, this.baseExtensions)
++  }
++
+   private toInlineContent(content: JSONContent[]): JSONContent[] {
+     const inlineTypes = this.getInlineNodeTypes()
+ 
+@@ -1116,7 +1215,7 @@ export class MarkdownManager {
+    *   htmlAsLiteralText('<enter foo>', true)
+    *   // → { type: 'paragraph', content: [{ type: 'text', text: '<enter foo>' }] }
+    */
+-  private htmlAsLiteralText(html: string, isBlock: boolean): JSONContent | JSONContent[] | null {
++  private htmlAsLiteralText(html: string, isBlock: boolean, token: MarkdownToken): JSONContent | JSONContent[] | null {
+     // Strip trailing whitespace/newlines that marked appends to block HTML
+     // tokens so the rendered text doesn't end with stray blank lines.
+     const text = html.replace(/\s+$/, '')
+@@ -1125,14 +1224,9 @@ export class MarkdownManager {
+       return null
+     }
+ 
+-    if (isBlock) {
+-      return {
+-        type: 'paragraph',
+-        content: [{ type: 'text', text }],
+-      }
+-    }
+-
+-    return { type: 'text', text }
++    const node = { type: 'text', text }
++    this.onParse?.({ kind: 'text', token, node, input: html, output: text, replacements: text.length < html.length ? [{ from: text.length, to: html.length, text: '' }] : [] })
++    return isBlock ? { type: 'paragraph', content: [node] } : node
+   }
+ 
+   /**
+@@ -1261,6 +1355,13 @@ export class MarkdownManager {
+    * Render an array of nodes while properly tracking mark boundaries.
+    * This handles cases where marks span across multiple text nodes.
+    */
++  protected getRenderTextPosition(_node: JSONContent, _input: string): { position: number; finish(position: number): void } | undefined { return undefined }
++
++  protected collapseEmptyOutput(): boolean { return true }
++  protected onRenderEmpty(): void {}
++
++  protected onRenderNode(_node: JSONContent, _parent: JSONContent | undefined, _from: number, _to: number): void {}
++
+   private renderNodesWithMarkBoundaries(
+     nodes: JSONContent[],
+     parentNode?: JSONContent,
+@@ -1268,6 +1369,11 @@ export class MarkdownManager {
+     level = 0,
+   ): string {
+     const result: string[] = []
++    let outputLength = 0
++    const append = (value: string) => {
++      outputLength += (result.length ? separator.length : 0) + value.length
++      result.push(value)
++    }
+     const activeMarks: Map<string, any> = new Map()
+     const reopenWithHtmlOnNextOpen = new Set<string>()
+     const markOpeningModes = new Map<string, 'markdown' | 'html'>()
+@@ -1281,6 +1387,9 @@ export class MarkdownManager {
+ 
+       if (node.type === 'text') {
+         let textContent = this.encodeTextForMarkdown(node.text || '', node, parentNode)
++        const trace = this.getRenderTextPosition(node, textContent)
++        let point = trace?.position
++        let middlePoint: number | undefined, leadingPoint: number | undefined, trailingPoint: number | undefined
+         let currentMarks = new Map((node.marks || []).map(mark => [mark.type, mark]))
+ 
+         // Find marks that need to be closed and opened
+@@ -1325,6 +1434,7 @@ export class MarkdownManager {
+           if (middleTrailingMatch) {
+             middleTrailingWhitespace = middleTrailingMatch[1]
+             textContent = textContent.slice(0, -middleTrailingWhitespace.length)
++            if (point !== undefined && point > textContent.length) { middlePoint = point - textContent.length; point = undefined; }
+           }
+         }
+ 
+@@ -1363,6 +1473,7 @@ export class MarkdownManager {
+           if (leadingMatch) {
+             leadingWhitespace = leadingMatch[1]
+             textContent = textContent.slice(leadingWhitespace.length)
++            if (point !== undefined) { if (point < leadingWhitespace.length) { leadingPoint = point; point = undefined; } else point -= leadingWhitespace.length; }
+           }
+         }
+ 
+@@ -1375,6 +1486,7 @@ export class MarkdownManager {
+           const openMarkdown = this.getMarkOpening(type, mark, openingMode)
+           if (openMarkdown) {
+             textContent = openMarkdown + textContent
++            if (point !== undefined) point += openMarkdown.length
+           }
+           markOpeningModes.set(type, openingMode)
+           reopenWithHtmlOnNextOpen.delete(type)
+@@ -1391,6 +1503,7 @@ export class MarkdownManager {
+ 
+         // Add leading whitespace before the mark opening
+         textContent = leadingWhitespace + textContent
++        if (leadingPoint !== undefined) point = leadingPoint; else if (point !== undefined) point += leadingWhitespace.length;
+ 
+         // Determine marks to close at the end of this node.
+         // On a crossed boundary, we close new marks (inner) first, then old marks (outer),
+@@ -1434,6 +1547,7 @@ export class MarkdownManager {
+           if (trailingMatch) {
+             trailingWhitespace = trailingMatch[1]
+             textContent = textContent.slice(0, -trailingWhitespace.length)
++            if (point !== undefined && point > textContent.length) { trailingPoint = point - textContent.length; point = undefined; }
+           }
+         }
+ 
+@@ -1448,10 +1562,13 @@ export class MarkdownManager {
+         })
+ 
+         // Add trailing whitespace after the mark closing
++        if (trailingPoint !== undefined) point = textContent.length + trailingPoint;
+         textContent += trailingWhitespace
++        if (middlePoint !== undefined) point = textContent.length + middlePoint;
+         textContent += middleTrailingWhitespace
+ 
+-        result.push(textContent)
++        if (point !== undefined) trace?.finish(outputLength + (result.length ? separator.length : 0) + point);
++        append(textContent)
+       } else {
+         // For non-text nodes, close all active marks before rendering, then reopen after
+         // Only reopen marks that the node itself carries — marks don't skip over inline atoms.
+@@ -1485,7 +1602,9 @@ export class MarkdownManager {
+                 return this.getMarkOpening(markType, mark, openingMode)
+               })
+ 
+-        result.push(beforeMarkdown + nodeContent + afterMarkdown)
++        const from = outputLength + (result.length ? separator.length : 0) + beforeMarkdown.length
++        this.onRenderNode(node, parentNode, from, from + nodeContent.length)
++        append(beforeMarkdown + nodeContent + afterMarkdown)
+       }
+     })
+ 
+diff --git a/node_modules/@tiptap/markdown/src/utils.ts b/node_modules/@tiptap/markdown/src/utils.ts
+index 7660780..927ac71 100644
+--- a/node_modules/@tiptap/markdown/src/utils.ts
++++ b/node_modules/@tiptap/markdown/src/utils.ts
+@@ -20,7 +20,7 @@ const TRAILING_BLANK_LINES = /\n[^\S\n]*(?:\n[^\S\n]*)+$/
+  * @param tokens The marked token stream to normalize.
+  * @returns A new token array with absorbed blank lines as `space` tokens.
+  */
+-export function extractAbsorbedBlankLines(tokens: MarkdownToken[]): MarkdownToken[] {
++export function extractAbsorbedBlankLines(tokens: MarkdownToken[], onDerive?: (token: MarkdownToken, parent: MarkdownToken, from: number, to: number, copiedText?: true) => void): MarkdownToken[] {
+   return tokens.flatMap((token, index) => {
+     // A following `space` token already carries the blank lines for this gap.
+     if (token.type === 'space' || tokens[index + 1]?.type === 'space') {
+@@ -33,10 +33,14 @@ export function extractAbsorbedBlankLines(tokens: MarkdownToken[]): MarkdownToke
+       return [token]
+     }
+ 
+-    return [
++    const derived = [
+       { ...token, raw: (token.raw || '').slice(0, -trailingBlankLines[0].length) },
+       { type: 'space', raw: trailingBlankLines[0] } as MarkdownToken,
+     ]
++    const boundary = (token.raw || '').length - trailingBlankLines[0].length
++    onDerive?.(derived[0], token, 0, boundary, true)
++    onDerive?.(derived[1], token, boundary, (token.raw || '').length)
++    return derived
+   })
+ }
+ 

@@ -1,0 +1,56 @@
+.markdown-math {
+	display: inline-block;
+	max-width: 100%;
+	vertical-align: middle;
+}
+.markdown-math[data-type="block-math"] {
+	display: block;
+	margin: 1em 0;
+	text-align: center;
+}
+.markdown-math-preview {
+	background: transparent;
+	border: 0;
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	max-width: 100%;
+	overflow-x: auto;
+	padding: 0.1em 0.2em;
+}
+.markdown-math-controls:not([hidden]) {
+
+	display: block;
+	min-width: min(260px, 100%);
+	text-align: left;
+}
+.markdown-math-controls textarea {
+	background: var(--md-surface);
+	border: 1px solid var(--md-border);
+	border-radius: 4px;
+	color: var(--md-foreground);
+	display: block;
+	font:
+		0.85em / 1.5 ui-monospace,
+		SFMono-Regular,
+		monospace;
+	padding: 6px;
+	resize: vertical;
+	width: 100%;
+}
+.markdown-math-error:not([hidden]) {
+	color: var(--md-warning);
+	display: block;
+	font-size: 12px;
+	white-space: normal;
+}
+
+.markdown-math-controls .markdown-code-editor {
+	text-align: left;
+	width: 100%;
+}
+
+.markdown-math.ProseMirror-selectednode {
+ border-radius: 6px;
+ box-shadow: 0 0 0 1px var(--md-border);
+}

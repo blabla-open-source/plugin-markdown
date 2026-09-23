@@ -1,0 +1,649 @@
+@import "./app/markdown-ui.css";
+@import "./app/markdown-menus.css";
+@import "./app/markdown-colors.css";
+@import "./app/markdown-code-editor.css";
+@import "./app/markdown-footnotes.css";
+@import "./app/markdown-alerts.css";
+@import "./app/markdown-toc.css";
+@import "./app/markdown-emoji.css";
+@import "./app/markdown-math.css";
+@import "./app/markdown-diagram.css";
+@import "./app/markdown-html-block.css";
+@import "./app/markdown-media.css";
+@import "./app/markdown-iframe.css";
+@import "./app/markdown-keyboard.css";
+@import "./app/markdown-ruby.css";
+
+:root {
+	color-scheme: light dark;
+	font-family:
+		Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+		"Segoe UI", sans-serif;
+	line-height: 1.5;
+}
+
+.markdown-prosemirror pre[data-front-matter] {
+	background: transparent;
+	border: 0;
+	border-bottom: 1px dashed var(--md-border);
+	border-radius: 0;
+	color: var(--md-muted-foreground);
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 0.85em;
+	line-height: 1.6;
+	min-height: 2.5em;
+	padding: 0 0 12px;
+	white-space: pre-wrap;
+}
+
+.markdown-prosemirror pre[data-front-matter]:has(> br:only-child)::before {
+	content: "YAML Front Matter";
+	float: left;
+	height: 0;
+	pointer-events: none;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	min-width: 320px;
+	overflow: hidden;
+}
+
+html,
+body,
+#root {
+	background: transparent;
+	height: 100%;
+}
+
+button,
+input {
+	font: inherit;
+}
+
+.markdown-prosemirror [data-markdown-html-anchor] > input {
+	background: var(--md-muted);
+	border: 1px solid var(--md-border);
+	border-radius: 4px;
+	color: var(--md-muted-foreground);
+	font:
+		0.85em / 1.5 ui-monospace,
+		SFMono-Regular,
+		monospace;
+	max-width: 100%;
+	outline: none;
+	padding: 1px 4px;
+	user-select: text;
+}
+
+.markdown-prosemirror [data-markdown-html-anchor] > input:focus {
+	background: var(--md-surface);
+	border-color: var(--md-accent);
+	color: var(--md-foreground);
+}
+
+:root {
+	--md-accent: #2563eb;
+	--md-accent-foreground: #ffffff;
+	--md-background: #f8fafc;
+	--md-border: #d4d7dd;
+	--md-caret: var(--md-foreground);
+	--md-code-background: #f3f4f6;
+	--md-code-foreground: #1f2937;
+	--md-foreground: #16181d;
+	--md-muted: #eef1f5;
+	--md-muted-foreground: #667085;
+	--md-primary: #2563eb;
+	--md-primary-foreground: #ffffff;
+	--md-surface: #ffffff;
+	--md-warning: #7a3e00;
+	--md-warning-background: #fff4e5;
+	--md-warning-border: #f0c36d;
+	--md-warning-surface: #ffffff;
+	--tt-bg-color: var(--md-background);
+	--tt-border-color: var(--md-border);
+	--tt-border-color-tint: var(--md-muted);
+	--tt-brand-color-400: var(--md-primary);
+	--tt-brand-color-500: var(--md-primary);
+	--tt-card-bg-color: var(--md-surface);
+	--tt-card-border-color: var(--md-border);
+	--tt-cursor-color: var(--md-caret);
+	--tt-selection-color: rgb(37 99 235 / 16%);
+	--tt-theme-text: var(--md-foreground);
+	--tt-toolbar-bg-color: transparent;
+	--tt-toolbar-border-color: transparent;
+	--tt-toolbar-height: 44px;
+}
+
+.markdown-shell,
+.markdown-app {
+	color: var(--md-foreground);
+	height: 100vh;
+	width: 100vw;
+}
+
+.markdown-shell {
+	align-items: center;
+	display: flex;
+	justify-content: center;
+	padding: 24px;
+}
+
+.markdown-app {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	user-select: none;
+}
+
+.markdown-chrome {
+	align-items: center;
+	display: grid;
+	gap: 12px;
+	grid-template-columns: minmax(120px, 1fr) auto;
+	min-height: 52px;
+	padding: 8px 12px;
+}
+
+.title-input {
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 6px;
+	caret-color: var(--md-caret);
+	color: var(--md-foreground);
+	font-size: 15px;
+	font-weight: 650;
+	min-width: 0;
+	outline: none;
+	padding: 6px 8px;
+	user-select: text;
+}
+
+.title-input:focus {
+	background: var(--md-surface);
+	border-color: var(--md-border);
+}
+
+.markdown-toolbar {
+	max-width: 100%;
+	min-width: 0;
+	overflow-x: auto;
+}
+
+.markdown-toolbar.tiptap-toolbar[data-variant="floating"][data-plain="true"] {
+	border-bottom: none;
+}
+
+.markdown-toolbar .tiptap-button {
+	cursor: default;
+}
+
+.markdown-toolbar .tiptap-button:disabled {
+	opacity: 0.42;
+}
+
+.conflict-bar svg {
+	height: 16px;
+	stroke-width: 2;
+	width: 16px;
+}
+
+.conflict-bar {
+	align-items: center;
+	background: var(--md-warning-background);
+	border-bottom: 1px solid var(--md-warning-border);
+	color: var(--md-warning);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	min-height: 40px;
+	padding: 6px 16px;
+}
+
+.conflict-bar span {
+	font-size: 13px;
+	font-weight: 650;
+	margin-right: auto;
+}
+
+.conflict-bar button {
+	align-items: center;
+	background: var(--md-warning-surface);
+	border: 1px solid var(--md-warning-border);
+	border-radius: 6px;
+	color: var(--md-warning);
+	display: inline-flex;
+	gap: 6px;
+	height: 28px;
+	padding: 0 9px;
+}
+
+.slash-command-menu {
+	background: var(--md-surface);
+	border: 1px solid var(--md-border);
+	border-radius: 8px;
+	box-shadow:
+		0 16px 36px rgb(15 23 42 / 14%),
+		0 2px 8px rgb(15 23 42 / 8%);
+	left: clamp(18px, calc((100vw - 648px) / 2 + 40px), 360px);
+	min-width: 168px;
+	padding: 5px;
+	position: fixed;
+	top: 112px;
+	z-index: 30;
+}
+
+.slash-command-option {
+	align-items: center;
+	appearance: none;
+	background: transparent;
+	border: 0;
+	border-radius: 6px;
+	color: var(--md-foreground);
+	display: flex;
+	height: 34px;
+	justify-content: flex-start;
+	margin: 0;
+	padding: 0 10px;
+	text-align: left;
+	width: 100%;
+}
+
+.slash-command-option:hover,
+.slash-command-option[aria-selected="true"] {
+	background: var(--md-muted);
+}
+
+.editor-shell {
+	background: var(--md-background);
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	overscroll-behavior: contain;
+	position: relative;
+}
+
+.markdown-editor-content {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	height: 100%;
+	margin: 0 auto;
+	max-width: 914px;
+	width: 100%;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror {
+	caret-color: var(--tt-cursor-color);
+	color: var(--md-foreground);
+	flex: 1;
+	font-family:
+		Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+		"Segoe UI", sans-serif;
+	font-size: 16px;
+	line-height: 1.6;
+	min-height: calc(100vh - 160px);
+	outline: none;
+	padding: 3rem 30px 30vh;
+	user-select: text;
+	word-break: break-word;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror h5,
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror h6 {
+	color: inherit;
+	font-style: inherit;
+	font-weight: 600;
+	margin-top: 1.75em;
+	position: relative;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror h5 {
+	font-size: 0.95em;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror h6 {
+	color: var(--md-muted-foreground);
+	font-size: 0.9em;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror mark {
+	background: color-mix(in srgb, #facc15 42%, transparent);
+	border-radius: 3px;
+	box-decoration-break: clone;
+	padding: 0 0.08em;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror sub,
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror sup {
+	font-size: 0.72em;
+	line-height: 0;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror
+	img:not(.markdown-html-block-preview img, .markdown-ruby-preview img) {
+	border-radius: 6px;
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--md-border) 80%, transparent);
+	display: block;
+	height: auto;
+	margin: 1.5em auto;
+	max-width: 100%;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror .tableWrapper {
+	margin: 1.5em 0;
+	overflow-x: auto;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror table {
+	border-collapse: collapse;
+	font-size: 0.94em;
+	min-width: 100%;
+	table-layout: fixed;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror th,
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror td {
+	border: 1px solid var(--md-border);
+	min-width: 1em;
+	padding: 0.5em 0.65em;
+	position: relative;
+	vertical-align: top;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror th {
+	background: color-mix(in srgb, var(--md-muted) 72%, transparent);
+	font-weight: 650;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror .selectedCell::after {
+	background: color-mix(in srgb, var(--md-primary) 16%, transparent);
+	content: "";
+	inset: 0;
+	pointer-events: none;
+	position: absolute;
+	z-index: 2;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror .column-resize-handle {
+	background: var(--md-primary);
+	bottom: 0;
+	pointer-events: none;
+	position: absolute;
+	right: -2px;
+	top: 0;
+	width: 3px;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror.resize-cursor {
+	cursor: col-resize;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror pre .hljs-keyword,
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror pre .hljs-selector-tag,
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror
+	pre
+	.hljs-title.function_ {
+	color: #7c3aed;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror pre .hljs-string,
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror pre .hljs-attr,
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror
+	pre
+	.hljs-template-variable {
+	color: #047857;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror pre .hljs-number,
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror pre .hljs-literal {
+	color: #b45309;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror pre .hljs-comment {
+	color: var(--md-muted-foreground);
+}
+
+.markdown-outline-rail {
+	display: flex;
+	justify-content: center;
+	max-height: 400px;
+	overflow: visible;
+	padding-bottom: 12px;
+	pointer-events: none;
+	position: fixed;
+	right: 38px;
+	top: 130px;
+	width: 40px;
+	z-index: 20;
+}
+
+.markdown-outline-rail-hitbox {
+	display: flex;
+	pointer-events: auto;
+	position: relative;
+}
+
+.markdown-outline-tick-list {
+	display: flex;
+	flex-direction: column;
+	max-height: 400px;
+	overflow: hidden auto;
+	overflow-x: visible;
+	padding-left: 12px;
+	scrollbar-width: none;
+}
+
+.markdown-outline-tick-list::-webkit-scrollbar {
+	display: none;
+}
+
+.markdown-outline-tick {
+	align-items: center;
+	appearance: none;
+	background: transparent;
+	border: 0;
+	box-shadow: none;
+	box-sizing: border-box;
+	color: inherit;
+	cursor: default;
+	display: flex;
+	font: inherit;
+	height: 12px;
+	justify-content: flex-end;
+	margin: 0;
+	outline: none;
+	padding: 0;
+	width: 40px;
+}
+
+.markdown-outline-tick span {
+	background: color-mix(in srgb, var(--md-foreground) 10%, transparent);
+	border-radius: 2px;
+	height: 1.5px;
+	transition:
+		background-color 200ms ease,
+		width 200ms ease;
+}
+
+.markdown-outline-tick:hover span {
+	background: color-mix(in srgb, var(--md-foreground) 35%, transparent);
+}
+
+.markdown-outline-tick[data-active="true"] span {
+	background: var(--md-foreground);
+}
+
+.markdown-outline-panel {
+	opacity: 0;
+	padding-left: 10px;
+	pointer-events: none;
+	position: absolute;
+	right: 42px;
+	top: -8px;
+	transform: translateX(4px);
+	transition:
+		opacity 200ms ease,
+		transform 200ms ease,
+		visibility 200ms ease;
+	visibility: hidden;
+	width: 250px;
+}
+
+.markdown-outline-rail-hitbox:focus-within .markdown-outline-panel,
+.markdown-outline-rail-hitbox:hover .markdown-outline-panel {
+	opacity: 1;
+	pointer-events: auto;
+	transform: translateX(0);
+	visibility: visible;
+}
+
+.markdown-outline-panel-card {
+	background: var(--md-surface);
+	border-radius: 12px;
+	box-shadow:
+		0 20px 24px rgb(15 23 42 / 16%),
+		0 5px 8px rgb(15 23 42 / 12%),
+		0 0 0 1px color-mix(in srgb, var(--md-border) 90%, transparent);
+	color: var(--md-foreground);
+	padding: 6px;
+	width: 240px;
+}
+
+.markdown-outline-panel-scroll {
+	display: flex;
+	flex-direction: column;
+	max-height: min(546px, calc(100vh - 180px));
+	overflow: hidden auto;
+	padding: 2px;
+	scrollbar-color: color-mix(in srgb, var(--md-foreground) 28%, transparent)
+		transparent;
+	scrollbar-width: thin;
+}
+
+.markdown-outline-panel-scroll::-webkit-scrollbar {
+	height: 6px;
+	width: 6px;
+}
+
+.markdown-outline-panel-scroll::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.markdown-outline-panel-scroll::-webkit-scrollbar-thumb {
+	background: color-mix(in srgb, var(--md-foreground) 28%, transparent);
+	background-clip: content-box;
+	border: 2px solid transparent;
+	border-radius: 999px;
+}
+
+.markdown-outline-panel-scroll::-webkit-scrollbar-thumb:hover {
+	background: color-mix(in srgb, var(--md-foreground) 42%, transparent);
+	background-clip: content-box;
+}
+
+.markdown-outline-panel-row {
+	align-items: center;
+	appearance: none;
+	background: transparent;
+	border: 0;
+	border-radius: 6px;
+	box-shadow: none;
+	box-sizing: border-box;
+	color: var(--md-muted-foreground);
+	cursor: default;
+	display: flex;
+	flex: 0 0 auto;
+	font-size: 13px;
+	font-weight: 450;
+	line-height: 1.22;
+	margin: 0;
+	min-height: 28px;
+	outline: none;
+	overflow-wrap: anywhere;
+	padding: 4px 6px;
+	text-align: left;
+	text-decoration: none;
+	transition:
+		background-color 150ms ease,
+		color 150ms ease;
+	white-space: normal;
+	width: 100%;
+}
+
+.markdown-outline-panel-row[data-heading-level="2"] {
+	padding-left: 14px;
+}
+
+.markdown-outline-panel-row[data-heading-level="3"] {
+	padding-left: 22px;
+}
+
+.markdown-outline-panel-row[data-heading-level="4"] {
+	padding-left: 30px;
+}
+
+.markdown-outline-panel-row[data-heading-level="5"],
+.markdown-outline-panel-row[data-heading-level="6"] {
+	padding-left: 38px;
+}
+
+.markdown-outline-panel-row:hover,
+.markdown-outline-panel-row:focus-visible {
+	background: var(--md-muted);
+	color: var(--md-foreground);
+}
+
+.markdown-outline-panel-row[data-active="true"] {
+	color: var(--md-foreground);
+	font-weight: 550;
+}
+
+.tiptap.ProseMirror.simple-editor.markdown-prosemirror > *:first-child {
+	margin-top: 0;
+}
+
+.title-input:focus-visible,
+.markdown-toolbar .tiptap-button:focus-visible,
+.markdown-outline-tick:focus-visible,
+.conflict-bar button:focus-visible {
+	outline: 2px solid color-mix(in srgb, var(--md-primary) 72%, transparent);
+	outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+	.markdown-chrome {
+		align-items: stretch;
+		grid-template-columns: 1fr auto;
+	}
+
+	.markdown-outline-rail {
+		display: none;
+	}
+
+	.markdown-toolbar {
+		grid-column: 1 / -1;
+		flex-wrap: wrap;
+		padding-bottom: 2px;
+	}
+
+	.tiptap.ProseMirror.simple-editor.markdown-prosemirror {
+		font-size: 15px;
+		padding: 1rem 30px 30vh;
+	}
+}
+
+@media (min-width: 1400px) {
+	.markdown-editor-content {
+		max-width: 1024px;
+	}
+}
+@media (min-width: 1800px) {
+	.markdown-editor-content {
+		max-width: 1200px;
+	}
+}

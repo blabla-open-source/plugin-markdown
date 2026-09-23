@@ -1,0 +1,25 @@
+/* Host Popover: one opaque surface, 8px radius, subtle ring and shadow. */
+.tiptap-popover,
+.markdown-context-tools {
+  background: var(--md-surface);
+  color: var(--md-foreground);
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--md-foreground) 10%, transparent),
+    0 4px 6px -1px #0000001a, 0 2px 4px -2px #0000001a;
+  font: var(--md-ui-font);
+  -webkit-font-smoothing: auto;
+  user-select: none;
+}
+.tiptap-popover > .tiptap-card {
+  background: transparent;
+  border: 0;
+  border-radius: inherit;
+  box-shadow: none;
+}
+.markdown-context-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  z-index: 40;
+}

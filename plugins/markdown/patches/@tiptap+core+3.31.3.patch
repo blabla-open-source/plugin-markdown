@@ -1,0 +1,958 @@
+diff --git a/node_modules/@tiptap/core/dist/index.cjs b/node_modules/@tiptap/core/dist/index.cjs
+index 811ad60..3e1a5d5 100644
+--- a/node_modules/@tiptap/core/dist/index.cjs
++++ b/node_modules/@tiptap/core/dist/index.cjs
+@@ -564,10 +564,10 @@ const removeWhitespaces = (node) => {
+ 	}
+ 	return node;
+ };
+-function elementFromString(value) {
++function elementFromString(value, parseHTML) {
+ 	if (typeof window === "undefined") throw new Error("[tiptap error]: there is no window object available, so this function cannot be used");
+ 	const wrappedValue = `<body>${value}</body>`;
+-	const html = new window.DOMParser().parseFromString(wrappedValue, "text/html").body;
++	const html = parseHTML ? parseHTML(wrappedValue) : new window.DOMParser().parseFromString(wrappedValue, "text/html").body;
+ 	return removeWhitespaces(html);
+ }
+ //#endregion
+@@ -3922,8 +3922,10 @@ function getStyleProperty(element, propertyName) {
+ * decoded **last** so that doubly-encoded sequences like `&amp;lt;` first
+ * survive the `&lt;` pass and then correctly become `&lt;` (not `<`).
+ */
+-function decodeHtmlEntities(text) {
+-	return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&amp;/g, "&");
++function decodeHtmlEntities(text, onReplace) {
++ if (!onReplace) return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&amp;/g, "&");
++ const replace = (pattern, value) => { let delta=0; text=text.replace(pattern,(match,offset)=>{onReplace(offset+delta,offset+delta+match.length,value);delta+=value.length-match.length;return value;}); };
++ replace(/&lt;/g,"<");replace(/&gt;/g,">");replace(/&quot;/g,'"');replace(/&amp;/g,"&");return text;
+ }
+ /**
+ * Encode HTML special characters so they roundtrip safely through markdown.
+@@ -4501,64 +4503,136 @@ function createInlineMarkdownSpec(options) {
+ * ```
+ */
+ function parseIndentedBlocks(src, config, lexer) {
+-	const lines = src.split("\n");
+-	const items = [];
+-	let totalRaw = "";
+-	let i = 0;
+-	const baseIndentSize = config.baseIndentSize || 2;
+-	while (i < lines.length) {
+-		const currentLine = lines[i];
+-		const itemMatch = currentLine.match(config.itemPattern);
+-		if (!itemMatch) {
+-			if (items.length > 0) break;
+-			else if (currentLine.trim() === "") {
+-				i += 1;
+-				totalRaw = `${totalRaw}${currentLine}\n`;
+-				continue;
+-			} else return;
+-		}
+-		const itemData = config.extractItemData(itemMatch);
+-		const { indentLevel, mainContent } = itemData;
+-		totalRaw = `${totalRaw}${currentLine}\n`;
+-		const itemContent = [mainContent];
+-		i += 1;
+-		while (i < lines.length) {
+-			var _nextLine$match;
+-			const nextLine = lines[i];
+-			if (nextLine.trim() === "") {
+-				var _nextNonEmpty$match;
+-				const nextNonEmptyIndex = lines.slice(i + 1).findIndex((l) => l.trim() !== "");
+-				if (nextNonEmptyIndex === -1) break;
+-				if ((((_nextNonEmpty$match = lines[i + 1 + nextNonEmptyIndex].match(/^(\s*)/)) === null || _nextNonEmpty$match === void 0 || (_nextNonEmpty$match = _nextNonEmpty$match[1]) === null || _nextNonEmpty$match === void 0 ? void 0 : _nextNonEmpty$match.length) || 0) > indentLevel) {
+-					itemContent.push(nextLine);
+-					totalRaw = `${totalRaw}${nextLine}\n`;
+-					i += 1;
+-					continue;
+-				} else break;
+-			}
+-			if ((((_nextLine$match = nextLine.match(/^(\s*)/)) === null || _nextLine$match === void 0 || (_nextLine$match = _nextLine$match[1]) === null || _nextLine$match === void 0 ? void 0 : _nextLine$match.length) || 0) > indentLevel) {
+-				itemContent.push(nextLine);
+-				totalRaw = `${totalRaw}${nextLine}\n`;
+-				i += 1;
+-			} else break;
+-		}
+-		let nestedTokens;
+-		const nestedContent = itemContent.slice(1);
+-		if (nestedContent.length > 0) {
+-			const dedentedNested = nestedContent.map((nestedLine) => nestedLine.slice(indentLevel + baseIndentSize)).join("\n");
+-			if (dedentedNested.trim()) {
+-				if (config.customNestedParser) nestedTokens = config.customNestedParser(dedentedNested);
+-				else nestedTokens = lexer.blockTokens(dedentedNested);
+-			}
+-		}
+-		const token = config.createToken(itemData, nestedTokens);
+-		items.push(token);
+-	}
+-	if (items.length === 0) return;
+-	return {
+-		items,
+-		raw: totalRaw
+-	};
++    // Read only lines reached by this block and its lookahead.
++    const lines = [];
++    const lineOffsets = [];
++    let cursor = 0;
++    const lineAt = (index) => {
++      while (lines.length <= index && cursor <= src.length) {
++        const end = src.indexOf('\n', cursor);
++        lineOffsets.push(cursor);
++        lines.push(src.slice(cursor, end < 0 ? src.length : end));
++        cursor = end < 0 ? src.length + 1 : end + 1;
++      }
++      return lines[index];
++    };
++    const items = [];
++    let totalRaw = '';
++    let sourceStart = -1;
++    let i = 0;
++    const baseIndentSize = config.baseIndentSize || 2;
++    while (lineAt(i) !== undefined) {
++        const currentLine = lineAt(i);
++        const atPoint = lexer.sourcePoint?.() === totalRaw.length;
++        const itemMatch = atPoint ? null : currentLine.match(config.itemPattern);
++        if (!itemMatch) {
++            // Not a matching item - stop if we have items, otherwise this isn't our block type
++            if (items.length > 0) {
++                break;
++            }
++            else if (!atPoint && currentLine.trim() === '') {
++                i += 1;
++                totalRaw = `${totalRaw}${currentLine}\n`;
++                continue;
++            }
++            else {
++                return undefined;
++            }
++        }
++        if (sourceStart < 0)
++            sourceStart = totalRaw.length;
++        const itemFrom = totalRaw.length;
++        const itemData = config.extractItemData(itemMatch);
++        const { indentLevel, mainContent } = itemData;
++        totalRaw = `${totalRaw}${currentLine}\n`;
++        // Collect content for this item (including nested items)
++        const nestedFrom = totalRaw.length;
++        const itemContent = [mainContent]; // Start with the main text
++        i += 1;
++        // Look ahead for nested content (indented more than current item)
++        while (lineAt(i) !== undefined) {
++            const nextLine = lineAt(i);
++            if (lexer.sourcePoint?.() === totalRaw.length) break;
++            if (nextLine.trim() === '') {
++                // Empty line - might be end of nested content
++                let nextNonEmptyIndex = i + 1;
++                while (lineAt(nextNonEmptyIndex)?.trim() === '' && lexer.sourcePoint?.() !== lineOffsets[nextNonEmptyIndex]) nextNonEmptyIndex++;
++                const nextNonEmpty = lineAt(nextNonEmptyIndex);
++                if (nextNonEmpty === undefined) {
++                    // No more content
++                    break;
++                }
++                const nextIndent = lexer.sourcePoint?.() === lineOffsets[nextNonEmptyIndex] ? 0 : nextNonEmpty.match(/^(\s*)/)?.[1]?.length || 0;
++                if (nextIndent > indentLevel) {
++                    // Nested content continues after empty line
++                    itemContent.push(nextLine);
++                    totalRaw = `${totalRaw}${nextLine}\n`;
++                    i += 1;
++                    continue;
++                }
++                else {
++                    // End of nested content
++                    break;
++                }
++            }
++            const nextIndent = nextLine.match(/^(\s*)/)?.[1]?.length || 0;
++            if (nextIndent > indentLevel) {
++                // This is nested content for the current item
++                itemContent.push(nextLine);
++                totalRaw = `${totalRaw}${nextLine}\n`;
++                i += 1;
++            }
++            else {
++                // Same or less indentation - this belongs to parent level
++                break;
++            }
++        }
++        // Parse nested content if present
++        let nestedTokens;
++        const nestedContent = itemContent.slice(1);
++        if (nestedContent.length > 0) {
++            // Remove the base indentation from nested content
++            const segments = [];
++            let outputOffset = 0;
++            let parentOffset = nestedFrom;
++            const dedentedNested = nestedContent
++                .map((nestedLine, index) => {
++                const start = Math.min(nestedLine.length, indentLevel + baseIndentSize);
++                const text = nestedLine.slice(indentLevel + baseIndentSize);
++                if (index) {
++                    segments.push({ from: outputOffset, to: outputOffset + 1, parentFrom: parentOffset - 1, parentTo: parentOffset });
++                    outputOffset++;
++                }
++                segments.push({ from: outputOffset, to: outputOffset + text.length, parentFrom: parentOffset + start, parentTo: parentOffset + nestedLine.length });
++                outputOffset += text.length;
++                parentOffset += nestedLine.length + 1;
++                return text;
++            }) // Remove base indent + 2 spaces
++                .join('\n');
++            if (dedentedNested.trim()) {
++                // Use custom nested parser if provided, otherwise fall back to default
++                const nestedLexer = lexer.withSource?.(dedentedNested, segments) ?? lexer;
++                if (config.customNestedParser) {
++                    nestedTokens = config.customNestedParser(dedentedNested, nestedLexer);
++                }
++                else {
++                    nestedTokens = nestedLexer.blockTokens(dedentedNested, { from: 0, to: dedentedNested.length });
++                }
++            }
++        }
++        // Create the token using the provided factory function
++        const token = config.createToken(itemData, nestedTokens, itemFrom);
++    token.sourceRange = {from: itemFrom, to: Math.min(src.length, totalRaw.length)};
++        items.push(token);
++    }
++    if (items.length === 0) {
++        return undefined;
++    }
++    return {
++        items,
++        raw: totalRaw,
++        sourceStart,
++    };
+ }
+ //#endregion
+ //#region src/utilities/markdown/renderNestedMarkdownContent.ts
+@@ -8057,5 +8131,3 @@ exports.textPasteRule = textPasteRule;
+ exports.textblockTypeInputRule = textblockTypeInputRule;
+ exports.updateMarkViewAttributes = updateMarkViewAttributes;
+ exports.wrappingInputRule = wrappingInputRule;
+-
+-//# sourceMappingURL=index.cjs.map
+\ No newline at end of file
+diff --git a/node_modules/@tiptap/core/dist/index.d.cts b/node_modules/@tiptap/core/dist/index.d.cts
+index ce98a19..7021c48 100644
+--- a/node_modules/@tiptap/core/dist/index.d.cts
++++ b/node_modules/@tiptap/core/dist/index.d.cts
+@@ -2153,6 +2153,8 @@ type ExtendedRegExpMatchArray = RegExpMatchArray & {
+ type Dispatch = ((args?: any) => any) | undefined;
+ /** Markdown related types */
+ type MarkdownToken = {
++  /** Syntax-bearing interval inside raw; consumed leading separators stay outside. */
++  sourceRange?: { from: number; to: number };
+   type?: string;
+   raw?: string;
+   text?: string;
+@@ -2175,10 +2177,14 @@ type MarkdownHelpers = {
+  * These are provided to extension parse handlers.
+  */
+ type MarkdownParseHelpers = {
++  /** Produce text from its actual token, retaining decoding/source observations. */
++  createTokenText: (token: MarkdownToken) => JSONContent
++  /** Copy an inline node with new marks while retaining its parser provenance. */
++  applyNodeMarks: (node: JSONContent, marks: JSONContent['marks']) => JSONContent
+   /** Parse an array of inline tokens into text nodes with marks */
+   parseInline: (tokens: MarkdownToken[]) => JSONContent[];
+   /** Tokenize source text as inline markdown when supported by the markdown parser */
+-  tokenizeInline?: (src: string) => MarkdownToken[];
++  tokenizeInline?: (src: string, source?: { tokens: MarkdownToken[]; from: number; to: number }) => MarkdownToken[];
+   /** Parse an array of block-level tokens */
+   parseChildren: (tokens: MarkdownToken[]) => JSONContent[];
+   /** Parse block-level tokens while preserving implicit empty paragraphs from blank lines */
+@@ -2251,18 +2257,24 @@ interface MarkdownExtensionSpec {
+  * Configuration object passed to custom marked.js tokenizers
+  */
+ type MarkdownLexerConfiguration = {
++  /** Pending editing boundary in this tokenizer input, if any. */
++  sourcePoint?: () => number | undefined
++  /** Claim that boundary as content produced by this tokenizer. */
++  claimSourcePoint?: () => void
++  withSource?: (src: string, segments: readonly { from: number; to: number; parentFrom: number; parentTo: number }[]) => MarkdownLexerConfiguration;
++
+   /**
+    * Can be used to transform source text into inline tokens - useful while tokenizing child tokens.
+    * @param src
+    * @returns Array of inline tokens
+    */
+-  inlineTokens: (src: string) => MarkdownToken[];
++  inlineTokens: (src: string, source?: { from: number; to: number }) => MarkdownToken[];
+   /**
+    * Can be used to transform source text into block-level tokens - useful while tokenizing child tokens.
+    * @param src
+    * @returns Array of block-level tokens
+    */
+-  blockTokens: (src: string) => MarkdownToken[];
++  blockTokens: (src: string, source?: { from: number; to: number }) => MarkdownToken[];
+ };
+ /** Custom tokenizer function for marked.js extensions */
+ type MarkdownTokenizer = {
+@@ -5272,7 +5284,7 @@ declare function createStyleTag(style: string, nonce?: string, suffix?: string):
+ declare function deleteProps(obj: Record<string, any>, propOrProps: string | string[]): Record<string, any>;
+ //#endregion
+ //#region src/utilities/elementFromString.d.ts
+-declare function elementFromString(value: string): HTMLElement;
++declare function elementFromString(value: string, parseHTML?: (wrapped: string) => HTMLElement): HTMLElement;
+ //#endregion
+ //#region src/utilities/escapeForRegEx.d.ts
+ declare function escapeForRegEx(string: string): string;
+@@ -5317,7 +5329,8 @@ declare function getStyleProperty(element: HTMLElement, propertyName: string): s
+  * decoded **last** so that doubly-encoded sequences like `&amp;lt;` first
+  * survive the `&lt;` pass and then correctly become `&lt;` (not `<`).
+  */
+-declare function decodeHtmlEntities(text: string): string;
++/** Replacement coordinates refer to the string after previous callbacks. */
++declare function decodeHtmlEntities(text: string, onReplace?: (from: number, to: number, text: string) => void): string;
+ /**
+  * Encode HTML special characters so they roundtrip safely through markdown.
+  * `&` is encoded **first** to avoid double-encoding the ampersand in other
+@@ -5625,7 +5638,7 @@ interface BlockParserConfig {
+     [key: string]: any;
+   };
+   /** Function to create the final token */
+-  createToken: (data: any, nestedTokens?: any[]) => ParsedBlock;
++  createToken: (data: any, nestedTokens?: any[], sourceStart?: number) => ParsedBlock;
+   /** Base indentation to remove from nested content (default: 2 spaces) */
+   baseIndentSize?: number;
+   /**
+@@ -5633,7 +5646,7 @@ interface BlockParserConfig {
+    * of the default lexer.blockTokens() for parsing nested content.
+    * This allows recursive parsing of the same block type.
+    */
+-  customNestedParser?: (dedentedContent: string) => any[] | undefined;
++  customNestedParser?: (dedentedContent: string, lexer: MarkdownLexerConfiguration) => any[] | undefined;
+ }
+ /**
+  * Parses markdown text into hierarchical indented blocks with proper nesting.
+@@ -5672,12 +5685,10 @@ interface BlockParserConfig {
+  * }, lexer)
+  * ```
+  */
+-declare function parseIndentedBlocks(src: string, config: BlockParserConfig, lexer: {
+-  inlineTokens: (src: string) => any[];
+-  blockTokens: (src: string) => any[];
+-}): {
++declare function parseIndentedBlocks(src: string, config: BlockParserConfig, lexer: MarkdownLexerConfiguration): {
+   items: ParsedBlock[];
+   raw: string;
++  sourceStart: number;
+ } | undefined;
+ //#endregion
+ //#region src/utilities/markdown/renderNestedMarkdownContent.d.ts
+diff --git a/node_modules/@tiptap/core/dist/index.d.ts b/node_modules/@tiptap/core/dist/index.d.ts
+index 58e2ead..e3f0bef 100644
+--- a/node_modules/@tiptap/core/dist/index.d.ts
++++ b/node_modules/@tiptap/core/dist/index.d.ts
+@@ -2152,6 +2152,8 @@ type ExtendedRegExpMatchArray = RegExpMatchArray & {
+ type Dispatch = ((args?: any) => any) | undefined;
+ /** Markdown related types */
+ type MarkdownToken = {
++  /** Syntax-bearing interval inside raw; consumed leading separators stay outside. */
++  sourceRange?: { from: number; to: number };
+   type?: string;
+   raw?: string;
+   text?: string;
+@@ -2174,10 +2176,14 @@ type MarkdownHelpers = {
+  * These are provided to extension parse handlers.
+  */
+ type MarkdownParseHelpers = {
++  /** Produce text from its actual token, retaining decoding/source observations. */
++  createTokenText: (token: MarkdownToken) => JSONContent
++  /** Copy an inline node with new marks while retaining its parser provenance. */
++  applyNodeMarks: (node: JSONContent, marks: JSONContent['marks']) => JSONContent
+   /** Parse an array of inline tokens into text nodes with marks */
+   parseInline: (tokens: MarkdownToken[]) => JSONContent[];
+   /** Tokenize source text as inline markdown when supported by the markdown parser */
+-  tokenizeInline?: (src: string) => MarkdownToken[];
++  tokenizeInline?: (src: string, source?: { tokens: MarkdownToken[]; from: number; to: number }) => MarkdownToken[];
+   /** Parse an array of block-level tokens */
+   parseChildren: (tokens: MarkdownToken[]) => JSONContent[];
+   /** Parse block-level tokens while preserving implicit empty paragraphs from blank lines */
+@@ -2250,18 +2256,24 @@ interface MarkdownExtensionSpec {
+  * Configuration object passed to custom marked.js tokenizers
+  */
+ type MarkdownLexerConfiguration = {
++  /** Pending editing boundary in this tokenizer input, if any. */
++  sourcePoint?: () => number | undefined
++  /** Claim that boundary as content produced by this tokenizer. */
++  claimSourcePoint?: () => void
++  withSource?: (src: string, segments: readonly { from: number; to: number; parentFrom: number; parentTo: number }[]) => MarkdownLexerConfiguration;
++
+   /**
+    * Can be used to transform source text into inline tokens - useful while tokenizing child tokens.
+    * @param src
+    * @returns Array of inline tokens
+    */
+-  inlineTokens: (src: string) => MarkdownToken[];
++  inlineTokens: (src: string, source?: { from: number; to: number }) => MarkdownToken[];
+   /**
+    * Can be used to transform source text into block-level tokens - useful while tokenizing child tokens.
+    * @param src
+    * @returns Array of block-level tokens
+    */
+-  blockTokens: (src: string) => MarkdownToken[];
++  blockTokens: (src: string, source?: { from: number; to: number }) => MarkdownToken[];
+ };
+ /** Custom tokenizer function for marked.js extensions */
+ type MarkdownTokenizer = {
+@@ -5271,7 +5283,7 @@ declare function createStyleTag(style: string, nonce?: string, suffix?: string):
+ declare function deleteProps(obj: Record<string, any>, propOrProps: string | string[]): Record<string, any>;
+ //#endregion
+ //#region src/utilities/elementFromString.d.ts
+-declare function elementFromString(value: string): HTMLElement;
++declare function elementFromString(value: string, parseHTML?: (wrapped: string) => HTMLElement): HTMLElement;
+ //#endregion
+ //#region src/utilities/escapeForRegEx.d.ts
+ declare function escapeForRegEx(string: string): string;
+@@ -5316,7 +5328,8 @@ declare function getStyleProperty(element: HTMLElement, propertyName: string): s
+  * decoded **last** so that doubly-encoded sequences like `&amp;lt;` first
+  * survive the `&lt;` pass and then correctly become `&lt;` (not `<`).
+  */
+-declare function decodeHtmlEntities(text: string): string;
++/** Replacement coordinates refer to the string after previous callbacks. */
++declare function decodeHtmlEntities(text: string, onReplace?: (from: number, to: number, text: string) => void): string;
+ /**
+  * Encode HTML special characters so they roundtrip safely through markdown.
+  * `&` is encoded **first** to avoid double-encoding the ampersand in other
+@@ -5624,7 +5637,7 @@ interface BlockParserConfig {
+     [key: string]: any;
+   };
+   /** Function to create the final token */
+-  createToken: (data: any, nestedTokens?: any[]) => ParsedBlock;
++  createToken: (data: any, nestedTokens?: any[], sourceStart?: number) => ParsedBlock;
+   /** Base indentation to remove from nested content (default: 2 spaces) */
+   baseIndentSize?: number;
+   /**
+@@ -5632,7 +5645,7 @@ interface BlockParserConfig {
+    * of the default lexer.blockTokens() for parsing nested content.
+    * This allows recursive parsing of the same block type.
+    */
+-  customNestedParser?: (dedentedContent: string) => any[] | undefined;
++  customNestedParser?: (dedentedContent: string, lexer: MarkdownLexerConfiguration) => any[] | undefined;
+ }
+ /**
+  * Parses markdown text into hierarchical indented blocks with proper nesting.
+@@ -5671,12 +5684,10 @@ interface BlockParserConfig {
+  * }, lexer)
+  * ```
+  */
+-declare function parseIndentedBlocks(src: string, config: BlockParserConfig, lexer: {
+-  inlineTokens: (src: string) => any[];
+-  blockTokens: (src: string) => any[];
+-}): {
++declare function parseIndentedBlocks(src: string, config: BlockParserConfig, lexer: MarkdownLexerConfiguration): {
+   items: ParsedBlock[];
+   raw: string;
++  sourceStart: number;
+ } | undefined;
+ //#endregion
+ //#region src/utilities/markdown/renderNestedMarkdownContent.d.ts
+diff --git a/node_modules/@tiptap/core/dist/index.js b/node_modules/@tiptap/core/dist/index.js
+index 883243a..a60e9aa 100644
+--- a/node_modules/@tiptap/core/dist/index.js
++++ b/node_modules/@tiptap/core/dist/index.js
+@@ -552,10 +552,10 @@ const removeWhitespaces = (node) => {
+ 	}
+ 	return node;
+ };
+-function elementFromString(value) {
++function elementFromString(value, parseHTML) {
+ 	if (typeof window === "undefined") throw new Error("[tiptap error]: there is no window object available, so this function cannot be used");
+ 	const wrappedValue = `<body>${value}</body>`;
+-	const html = new window.DOMParser().parseFromString(wrappedValue, "text/html").body;
++	const html = parseHTML ? parseHTML(wrappedValue) : new window.DOMParser().parseFromString(wrappedValue, "text/html").body;
+ 	return removeWhitespaces(html);
+ }
+ //#endregion
+@@ -3910,8 +3910,10 @@ function getStyleProperty(element, propertyName) {
+ * decoded **last** so that doubly-encoded sequences like `&amp;lt;` first
+ * survive the `&lt;` pass and then correctly become `&lt;` (not `<`).
+ */
+-function decodeHtmlEntities(text) {
+-	return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&amp;/g, "&");
++function decodeHtmlEntities(text, onReplace) {
++ if (!onReplace) return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&amp;/g, "&");
++ const replace = (pattern, value) => { let delta=0; text=text.replace(pattern,(match,offset)=>{onReplace(offset+delta,offset+delta+match.length,value);delta+=value.length-match.length;return value;}); };
++ replace(/&lt;/g,"<");replace(/&gt;/g,">");replace(/&quot;/g,'"');replace(/&amp;/g,"&");return text;
+ }
+ /**
+ * Encode HTML special characters so they roundtrip safely through markdown.
+@@ -4489,64 +4491,136 @@ function createInlineMarkdownSpec(options) {
+ * ```
+ */
+ function parseIndentedBlocks(src, config, lexer) {
+-	const lines = src.split("\n");
+-	const items = [];
+-	let totalRaw = "";
+-	let i = 0;
+-	const baseIndentSize = config.baseIndentSize || 2;
+-	while (i < lines.length) {
+-		const currentLine = lines[i];
+-		const itemMatch = currentLine.match(config.itemPattern);
+-		if (!itemMatch) {
+-			if (items.length > 0) break;
+-			else if (currentLine.trim() === "") {
+-				i += 1;
+-				totalRaw = `${totalRaw}${currentLine}\n`;
+-				continue;
+-			} else return;
+-		}
+-		const itemData = config.extractItemData(itemMatch);
+-		const { indentLevel, mainContent } = itemData;
+-		totalRaw = `${totalRaw}${currentLine}\n`;
+-		const itemContent = [mainContent];
+-		i += 1;
+-		while (i < lines.length) {
+-			var _nextLine$match;
+-			const nextLine = lines[i];
+-			if (nextLine.trim() === "") {
+-				var _nextNonEmpty$match;
+-				const nextNonEmptyIndex = lines.slice(i + 1).findIndex((l) => l.trim() !== "");
+-				if (nextNonEmptyIndex === -1) break;
+-				if ((((_nextNonEmpty$match = lines[i + 1 + nextNonEmptyIndex].match(/^(\s*)/)) === null || _nextNonEmpty$match === void 0 || (_nextNonEmpty$match = _nextNonEmpty$match[1]) === null || _nextNonEmpty$match === void 0 ? void 0 : _nextNonEmpty$match.length) || 0) > indentLevel) {
+-					itemContent.push(nextLine);
+-					totalRaw = `${totalRaw}${nextLine}\n`;
+-					i += 1;
+-					continue;
+-				} else break;
+-			}
+-			if ((((_nextLine$match = nextLine.match(/^(\s*)/)) === null || _nextLine$match === void 0 || (_nextLine$match = _nextLine$match[1]) === null || _nextLine$match === void 0 ? void 0 : _nextLine$match.length) || 0) > indentLevel) {
+-				itemContent.push(nextLine);
+-				totalRaw = `${totalRaw}${nextLine}\n`;
+-				i += 1;
+-			} else break;
+-		}
+-		let nestedTokens;
+-		const nestedContent = itemContent.slice(1);
+-		if (nestedContent.length > 0) {
+-			const dedentedNested = nestedContent.map((nestedLine) => nestedLine.slice(indentLevel + baseIndentSize)).join("\n");
+-			if (dedentedNested.trim()) {
+-				if (config.customNestedParser) nestedTokens = config.customNestedParser(dedentedNested);
+-				else nestedTokens = lexer.blockTokens(dedentedNested);
+-			}
+-		}
+-		const token = config.createToken(itemData, nestedTokens);
+-		items.push(token);
+-	}
+-	if (items.length === 0) return;
+-	return {
+-		items,
+-		raw: totalRaw
+-	};
++    // Read only lines reached by this block and its lookahead.
++    const lines = [];
++    const lineOffsets = [];
++    let cursor = 0;
++    const lineAt = (index) => {
++      while (lines.length <= index && cursor <= src.length) {
++        const end = src.indexOf('\n', cursor);
++        lineOffsets.push(cursor);
++        lines.push(src.slice(cursor, end < 0 ? src.length : end));
++        cursor = end < 0 ? src.length + 1 : end + 1;
++      }
++      return lines[index];
++    };
++    const items = [];
++    let totalRaw = '';
++    let sourceStart = -1;
++    let i = 0;
++    const baseIndentSize = config.baseIndentSize || 2;
++    while (lineAt(i) !== undefined) {
++        const currentLine = lineAt(i);
++        const atPoint = lexer.sourcePoint?.() === totalRaw.length;
++        const itemMatch = atPoint ? null : currentLine.match(config.itemPattern);
++        if (!itemMatch) {
++            // Not a matching item - stop if we have items, otherwise this isn't our block type
++            if (items.length > 0) {
++                break;
++            }
++            else if (!atPoint && currentLine.trim() === '') {
++                i += 1;
++                totalRaw = `${totalRaw}${currentLine}\n`;
++                continue;
++            }
++            else {
++                return undefined;
++            }
++        }
++        if (sourceStart < 0)
++            sourceStart = totalRaw.length;
++        const itemFrom = totalRaw.length;
++        const itemData = config.extractItemData(itemMatch);
++        const { indentLevel, mainContent } = itemData;
++        totalRaw = `${totalRaw}${currentLine}\n`;
++        // Collect content for this item (including nested items)
++        const nestedFrom = totalRaw.length;
++        const itemContent = [mainContent]; // Start with the main text
++        i += 1;
++        // Look ahead for nested content (indented more than current item)
++        while (lineAt(i) !== undefined) {
++            const nextLine = lineAt(i);
++            if (lexer.sourcePoint?.() === totalRaw.length) break;
++            if (nextLine.trim() === '') {
++                // Empty line - might be end of nested content
++                let nextNonEmptyIndex = i + 1;
++                while (lineAt(nextNonEmptyIndex)?.trim() === '' && lexer.sourcePoint?.() !== lineOffsets[nextNonEmptyIndex]) nextNonEmptyIndex++;
++                const nextNonEmpty = lineAt(nextNonEmptyIndex);
++                if (nextNonEmpty === undefined) {
++                    // No more content
++                    break;
++                }
++                const nextIndent = lexer.sourcePoint?.() === lineOffsets[nextNonEmptyIndex] ? 0 : nextNonEmpty.match(/^(\s*)/)?.[1]?.length || 0;
++                if (nextIndent > indentLevel) {
++                    // Nested content continues after empty line
++                    itemContent.push(nextLine);
++                    totalRaw = `${totalRaw}${nextLine}\n`;
++                    i += 1;
++                    continue;
++                }
++                else {
++                    // End of nested content
++                    break;
++                }
++            }
++            const nextIndent = nextLine.match(/^(\s*)/)?.[1]?.length || 0;
++            if (nextIndent > indentLevel) {
++                // This is nested content for the current item
++                itemContent.push(nextLine);
++                totalRaw = `${totalRaw}${nextLine}\n`;
++                i += 1;
++            }
++            else {
++                // Same or less indentation - this belongs to parent level
++                break;
++            }
++        }
++        // Parse nested content if present
++        let nestedTokens;
++        const nestedContent = itemContent.slice(1);
++        if (nestedContent.length > 0) {
++            // Remove the base indentation from nested content
++            const segments = [];
++            let outputOffset = 0;
++            let parentOffset = nestedFrom;
++            const dedentedNested = nestedContent
++                .map((nestedLine, index) => {
++                const start = Math.min(nestedLine.length, indentLevel + baseIndentSize);
++                const text = nestedLine.slice(indentLevel + baseIndentSize);
++                if (index) {
++                    segments.push({ from: outputOffset, to: outputOffset + 1, parentFrom: parentOffset - 1, parentTo: parentOffset });
++                    outputOffset++;
++                }
++                segments.push({ from: outputOffset, to: outputOffset + text.length, parentFrom: parentOffset + start, parentTo: parentOffset + nestedLine.length });
++                outputOffset += text.length;
++                parentOffset += nestedLine.length + 1;
++                return text;
++            }) // Remove base indent + 2 spaces
++                .join('\n');
++            if (dedentedNested.trim()) {
++                // Use custom nested parser if provided, otherwise fall back to default
++                const nestedLexer = lexer.withSource?.(dedentedNested, segments) ?? lexer;
++                if (config.customNestedParser) {
++                    nestedTokens = config.customNestedParser(dedentedNested, nestedLexer);
++                }
++                else {
++                    nestedTokens = nestedLexer.blockTokens(dedentedNested, { from: 0, to: dedentedNested.length });
++                }
++            }
++        }
++        // Create the token using the provided factory function
++        const token = config.createToken(itemData, nestedTokens, itemFrom);
++    token.sourceRange = {from: itemFrom, to: Math.min(src.length, totalRaw.length)};
++        items.push(token);
++    }
++    if (items.length === 0) {
++        return undefined;
++    }
++    return {
++        items,
++        raw: totalRaw,
++        sourceStart,
++    };
+ }
+ //#endregion
+ //#region src/utilities/markdown/renderNestedMarkdownContent.ts
+@@ -7883,5 +7957,3 @@ var Tracker = class {
+ };
+ //#endregion
+ export { CommandManager, DECORATION_MANAGER_PLUGIN_KEY, Decoration, DecorationManager, Editor, Extendable, Extension, Fragment, InlineDecoration, InputRule, MappablePosition, Mark, MarkView, Node, NodeDecoration, NodePos, NodeView, PasteRule, ResizableNodeView, ResizableNodeview, Tracker, WidgetDecoration, attrsEqual, callOrReturn, canInsertNode, combineTransactionSteps, commands_exports as commands, createAtomBlockMarkdownSpec, createBlockMarkdownSpec, createChainableState, createDocument, h as createElement, h, createInlineMarkdownSpec, createMappablePosition, createNodeFromContent, createStyleTag, createWidgetDecoration, decodeHtmlEntities, defaultBlockAt, deleteProps, elementFromString, encodeHtmlEntities, escapeForRegEx, extensions_exports as extensions, findChildren, findChildrenInRange, findDuplicates, findParentNode, findParentNodeClosestToPos, flattenExtensions, fromString, generateHTML, generateJSON, generateText, getAttributes, getAttributesFromExtensions, getChangedRanges, getDebugJSON, getExtensionField, getHTMLFromFragment, getMarkAttributes, getMarkRange, getMarkType, getMarksBetween, getNodeAtPosition, getNodeAttributes, getNodeType, getPreviousBlockSibling, getRenderedAttributes, getSchema, getSchemaByResolvedExtensions, getSchemaTypeByName, getSchemaTypeNameByName, getSplittedAttributes, getStyleProperty, getText, getTextBetween, getTextContentFromNodes, getTextSerializersFromSchema, getUpdatedPosition, injectExtensionAttributesToParseRule, inputRulesPlugin, isActive, isAndroid, isAtEndOfNode, isAtStartOfNode, isEmptyObject, isExtensionRulesEnabled, isFirefox, isFunction, isList, isMacOS, isMarkActive, isNodeActive, isNodeEmpty, isNodeSelection, isNodeViewSelected, isNumber, isPlainObject, isProseMirrorAddMarkStep, isProseMirrorAddNodeMarkStep, isProseMirrorAttrStep, isProseMirrorCellSelection, isProseMirrorDocAttrStep, isProseMirrorFragment, isProseMirrorNodeSelection, isProseMirrorRemoveMarkStep, isProseMirrorRemoveNodeMarkStep, isProseMirrorReplaceAroundStep, isProseMirrorReplaceStep, isProseMirrorSlice, isProseMirrorStep, isProseMirrorStepResult, isRegExp, isSafari, isString, isTextSelection, isiOS, liveWidgetKeys, markInputRule, markPasteRule, markdown_exports as markdown, marksEqual, mergeAttributes, mergeDeep, minMax, nodeInputRule, nodePasteRule, objectIncludes, parseAttributes, parseIndentedBlocks, pasteRulesPlugin, posToDOMRect, removeDuplicates, renderNestedMarkdownContent, resolveExtensions, resolveFocusPosition, rewriteUnknownContent, selectionToInsertionEnd, serializeAttributes, sortExtensions, splitExtensions, textInputRule, textPasteRule, textblockTypeInputRule, updateMarkViewAttributes, wrappingInputRule };
+-
+-//# sourceMappingURL=index.js.map
+\ No newline at end of file
+diff --git a/node_modules/@tiptap/core/src/types.ts b/node_modules/@tiptap/core/src/types.ts
+index 0fdbb9f..cf90913 100644
+--- a/node_modules/@tiptap/core/src/types.ts
++++ b/node_modules/@tiptap/core/src/types.ts
+@@ -902,6 +902,8 @@ export type Dispatch = ((args?: any) => any) | undefined
+ 
+ // Shared markdown-related types for the MarkdownManager and extensions.
+ export type MarkdownToken = {
++  /** Syntax-bearing interval inside raw; consumed leading separators stay outside. */
++  sourceRange?: { from: number; to: number }
+   type?: string
+   raw?: string
+   text?: string
+@@ -928,10 +930,14 @@ export type MarkdownHelpers = {
+  * These are provided to extension parse handlers.
+  */
+ export type MarkdownParseHelpers = {
++  /** Produce text from its actual token, retaining decoding/source observations. */
++  createTokenText: (token: MarkdownToken) => JSONContent
++  /** Copy an inline node with new marks while retaining its parser provenance. */
++  applyNodeMarks: (node: JSONContent, marks: JSONContent['marks']) => JSONContent
+   /** Parse an array of inline tokens into text nodes with marks */
+   parseInline: (tokens: MarkdownToken[]) => JSONContent[]
+   /** Tokenize source text as inline markdown when supported by the markdown parser */
+-  tokenizeInline?: (src: string) => MarkdownToken[]
++  tokenizeInline?: (src: string, source?: { tokens: MarkdownToken[]; from: number; to: number }) => MarkdownToken[]
+   /** Parse an array of block-level tokens */
+   parseChildren: (tokens: MarkdownToken[]) => JSONContent[]
+   /** Parse block-level tokens while preserving implicit empty paragraphs from blank lines */
+@@ -1010,19 +1016,25 @@ export interface MarkdownExtensionSpec {
+  * Configuration object passed to custom marked.js tokenizers
+  */
+ export type MarkdownLexerConfiguration = {
++  /** Pending editing boundary in this tokenizer input, if any. */
++  sourcePoint?: () => number | undefined
++  /** Claim that boundary as content produced by this tokenizer. */
++  claimSourcePoint?: () => void
++  withSource?: (src: string, segments: readonly { from: number; to: number; parentFrom: number; parentTo: number }[]) => MarkdownLexerConfiguration
++
+   /**
+    * Can be used to transform source text into inline tokens - useful while tokenizing child tokens.
+    * @param src
+    * @returns Array of inline tokens
+    */
+-  inlineTokens: (src: string) => MarkdownToken[]
++  inlineTokens: (src: string, source?: { from: number; to: number }) => MarkdownToken[]
+ 
+   /**
+    * Can be used to transform source text into block-level tokens - useful while tokenizing child tokens.
+    * @param src
+    * @returns Array of block-level tokens
+    */
+-  blockTokens: (src: string) => MarkdownToken[]
++  blockTokens: (src: string, source?: { from: number; to: number }) => MarkdownToken[]
+ }
+ 
+ /** Custom tokenizer function for marked.js extensions */
+diff --git a/node_modules/@tiptap/core/src/utilities/elementFromString.ts b/node_modules/@tiptap/core/src/utilities/elementFromString.ts
+index a6af348..f41794e 100644
+--- a/node_modules/@tiptap/core/src/utilities/elementFromString.ts
++++ b/node_modules/@tiptap/core/src/utilities/elementFromString.ts
+@@ -14,7 +14,7 @@ const removeWhitespaces = (node: HTMLElement) => {
+   return node
+ }
+ 
+-export function elementFromString(value: string): HTMLElement {
++export function elementFromString(value: string, parseHTML?: (wrapped: string) => HTMLElement): HTMLElement {
+   if (typeof window === 'undefined') {
+     throw new Error(
+       '[tiptap error]: there is no window object available, so this function cannot be used',
+@@ -23,7 +23,7 @@ export function elementFromString(value: string): HTMLElement {
+   // add a wrapper to preserve leading and trailing whitespace
+   const wrappedValue = `<body>${value}</body>`
+ 
+-  const html = new window.DOMParser().parseFromString(wrappedValue, 'text/html').body
++  const html = parseHTML ? parseHTML(wrappedValue) : new window.DOMParser().parseFromString(wrappedValue, 'text/html').body
+ 
+   return removeWhitespaces(html)
+ }
+diff --git a/node_modules/@tiptap/core/src/utilities/htmlEntities.ts b/node_modules/@tiptap/core/src/utilities/htmlEntities.ts
+index ee04bf5..f5351b7 100644
+--- a/node_modules/@tiptap/core/src/utilities/htmlEntities.ts
++++ b/node_modules/@tiptap/core/src/utilities/htmlEntities.ts
+@@ -4,12 +4,19 @@
+  * decoded **last** so that doubly-encoded sequences like `&amp;lt;` first
+  * survive the `&lt;` pass and then correctly become `&lt;` (not `<`).
+  */
+-export function decodeHtmlEntities(text: string): string {
++export function decodeHtmlEntities(text: string, onReplace?: (from: number, to: number, text: string) => void): string {
++  if (!onReplace) return text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&')
++  // Each callback uses the current string after earlier reported replacements.
++  const replace = (pattern: RegExp, value: string) => {
++    let delta = 0
++    text = text.replace(pattern, (match, offset: number) => {
++      onReplace(offset + delta, offset + delta + match.length, value)
++      delta += value.length - match.length
++      return value
++    })
++  }
++  replace(/&lt;/g, '<'); replace(/&gt;/g, '>'); replace(/&quot;/g, '"'); replace(/&amp;/g, '&')
+   return text
+-    .replace(/&lt;/g, '<')
+-    .replace(/&gt;/g, '>')
+-    .replace(/&quot;/g, '"')
+-    .replace(/&amp;/g, '&')
+ }
+ 
+ /**
+diff --git a/node_modules/@tiptap/core/src/utilities/markdown/parseIndentedBlocks.ts b/node_modules/@tiptap/core/src/utilities/markdown/parseIndentedBlocks.ts
+index ae4956b..96a4ba0 100644
+--- a/node_modules/@tiptap/core/src/utilities/markdown/parseIndentedBlocks.ts
++++ b/node_modules/@tiptap/core/src/utilities/markdown/parseIndentedBlocks.ts
+@@ -1,3 +1,4 @@
++import type { MarkdownLexerConfiguration } from '../../types.js'
+ /**
+  * @fileoverview Utility for parsing indented markdown blocks with hierarchical nesting.
+  *
+@@ -26,7 +27,7 @@ export interface BlockParserConfig {
+     [key: string]: any
+   }
+   /** Function to create the final token */
+-  createToken: (data: any, nestedTokens?: any[]) => ParsedBlock
++  createToken: (data: any, nestedTokens?: any[], sourceStart?: number) => ParsedBlock
+   /** Base indentation to remove from nested content (default: 2 spaces) */
+   baseIndentSize?: number
+   /**
+@@ -34,7 +35,7 @@ export interface BlockParserConfig {
+    * of the default lexer.blockTokens() for parsing nested content.
+    * This allows recursive parsing of the same block type.
+    */
+-  customNestedParser?: (dedentedContent: string) => any[] | undefined
++  customNestedParser?: (dedentedContent: string, lexer: MarkdownLexerConfiguration) => any[] | undefined
+ }
+ 
+ /**
+@@ -77,31 +78,43 @@ export interface BlockParserConfig {
+ export function parseIndentedBlocks(
+   src: string,
+   config: BlockParserConfig,
+-  lexer: {
+-    inlineTokens: (src: string) => any[]
+-    blockTokens: (src: string) => any[]
+-  },
++  lexer: MarkdownLexerConfiguration,
+ ):
+   | {
+       items: ParsedBlock[]
+       raw: string
++      sourceStart: number
+     }
+   | undefined {
+-  const lines = src.split('\n')
++  // Read only lines reached by this block and its lookahead.
++  const lines: string[] = []
++  const lineOffsets: number[] = []
++  let cursor = 0
++  const lineAt = (index: number): string | undefined => {
++    while (lines.length <= index && cursor <= src.length) {
++      const end = src.indexOf('\n', cursor)
++      lineOffsets.push(cursor)
++      lines.push(src.slice(cursor, end < 0 ? src.length : end))
++      cursor = end < 0 ? src.length + 1 : end + 1
++    }
++    return lines[index]
++  }
+   const items: ParsedBlock[] = []
+   let totalRaw = ''
++  let sourceStart = -1
+   let i = 0
+   const baseIndentSize = config.baseIndentSize || 2
+ 
+-  while (i < lines.length) {
+-    const currentLine = lines[i]
+-    const itemMatch = currentLine.match(config.itemPattern)
++  while (lineAt(i) !== undefined) {
++    const currentLine = lineAt(i)!
++    const atPoint = lexer.sourcePoint?.() === totalRaw.length
++    const itemMatch = atPoint ? null : currentLine.match(config.itemPattern)
+ 
+     if (!itemMatch) {
+       // Not a matching item - stop if we have items, otherwise this isn't our block type
+       if (items.length > 0) {
+         break
+-      } else if (currentLine.trim() === '') {
++      } else if (!atPoint && currentLine.trim() === '') {
+         i += 1
+         totalRaw = `${totalRaw}${currentLine}\n`
+         continue
+@@ -110,28 +123,33 @@ export function parseIndentedBlocks(
+       }
+     }
+ 
++    if (sourceStart < 0) sourceStart = totalRaw.length
++    const itemFrom = totalRaw.length
+     const itemData = config.extractItemData(itemMatch)
+     const { indentLevel, mainContent } = itemData
+     totalRaw = `${totalRaw}${currentLine}\n`
+ 
+     // Collect content for this item (including nested items)
++    const nestedFrom = totalRaw.length
+     const itemContent = [mainContent] // Start with the main text
+     i += 1
+ 
+     // Look ahead for nested content (indented more than current item)
+-    while (i < lines.length) {
+-      const nextLine = lines[i]
++    while (lineAt(i) !== undefined) {
++      const nextLine = lineAt(i)!
++      if (lexer.sourcePoint?.() === totalRaw.length) break
+ 
+       if (nextLine.trim() === '') {
+         // Empty line - might be end of nested content
+-        const nextNonEmptyIndex = lines.slice(i + 1).findIndex(l => l.trim() !== '')
+-        if (nextNonEmptyIndex === -1) {
++        let nextNonEmptyIndex = i + 1
++        while (lineAt(nextNonEmptyIndex)?.trim() === '' && lexer.sourcePoint?.() !== lineOffsets[nextNonEmptyIndex]) nextNonEmptyIndex++
++        const nextNonEmpty = lineAt(nextNonEmptyIndex)
++        if (nextNonEmpty === undefined) {
+           // No more content
+           break
+         }
+ 
+-        const nextNonEmpty = lines[i + 1 + nextNonEmptyIndex]
+-        const nextIndent = nextNonEmpty.match(/^(\s*)/)?.[1]?.length || 0
++        const nextIndent = lexer.sourcePoint?.() === lineOffsets[nextNonEmptyIndex] ? 0 : nextNonEmpty.match(/^(\s*)/)?.[1]?.length || 0
+ 
+         if (nextIndent > indentLevel) {
+           // Nested content continues after empty line
+@@ -164,22 +182,38 @@ export function parseIndentedBlocks(
+ 
+     if (nestedContent.length > 0) {
+       // Remove the base indentation from nested content
++      const segments: Array<{from: number; to: number; parentFrom: number; parentTo: number}> = []
++      let outputOffset = 0
++      let parentOffset = nestedFrom
+       const dedentedNested = nestedContent
+-        .map(nestedLine => nestedLine.slice(indentLevel + baseIndentSize)) // Remove base indent + 2 spaces
++        .map((nestedLine, index) => {
++          const start = Math.min(nestedLine.length, indentLevel + baseIndentSize)
++          const text = nestedLine.slice(indentLevel + baseIndentSize)
++          if (index) {
++            segments.push({from: outputOffset, to: outputOffset + 1, parentFrom: parentOffset - 1, parentTo: parentOffset})
++            outputOffset++
++          }
++          segments.push({from: outputOffset, to: outputOffset + text.length, parentFrom: parentOffset + start, parentTo: parentOffset + nestedLine.length})
++          outputOffset += text.length
++          parentOffset += nestedLine.length + 1
++          return text
++        }) // Remove base indent + 2 spaces
+         .join('\n')
+ 
+       if (dedentedNested.trim()) {
+         // Use custom nested parser if provided, otherwise fall back to default
++        const nestedLexer = lexer.withSource?.(dedentedNested, segments) ?? lexer
+         if (config.customNestedParser) {
+-          nestedTokens = config.customNestedParser(dedentedNested)
++          nestedTokens = config.customNestedParser(dedentedNested, nestedLexer)
+         } else {
+-          nestedTokens = lexer.blockTokens(dedentedNested)
++          nestedTokens = nestedLexer.blockTokens(dedentedNested, {from: 0, to: dedentedNested.length})
+         }
+       }
+     }
+ 
+     // Create the token using the provided factory function
+-    const token = config.createToken(itemData, nestedTokens)
++    const token = config.createToken(itemData, nestedTokens, itemFrom);
++    token.sourceRange = {from: itemFrom, to: Math.min(src.length, totalRaw.length)};
+     items.push(token)
+   }
+ 
+@@ -190,5 +224,6 @@ export function parseIndentedBlocks(
+   return {
+     items,
+     raw: totalRaw,
++    sourceStart,
+   }
+ }

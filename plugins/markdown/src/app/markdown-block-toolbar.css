@@ -1,0 +1,53 @@
+.markdown-block-toolbar:not([hidden]) {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	min-height: 40px;
+	color: var(--md-muted-foreground);
+	font:
+		12px / 1.4 system-ui,
+		sans-serif;
+	text-align: left;
+}
+.markdown-block-toolbar button,
+.markdown-block-toolbar summary {
+	background: transparent;
+	border: 0;
+	border-radius: 6px;
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	min-height: 40px;
+	padding: 0 10px;
+}
+.markdown-block-toolbar button:hover,
+.markdown-block-toolbar summary:hover {
+	background: var(--md-muted);
+}
+.markdown-block-toolbar :focus-visible {
+	outline: 2px solid var(--md-accent);
+	outline-offset: 1px;
+}
+.markdown-block-toolbar details {
+	position: relative;
+	margin-left: auto;
+}
+.markdown-block-toolbar details > button {
+	position: absolute;
+	right: 0;
+	top: 100%;
+	z-index: 20;
+	white-space: nowrap;
+	background: var(--md-surface);
+	box-shadow: 0 4px 20px rgb(0 0 0 / 20%);
+}
+
+.markdown-block-toolbar summary {
+	list-style: none;
+	display: flex;
+	align-items: center;
+}
+.markdown-block-toolbar summary::-webkit-details-marker {
+	display: none;
+}

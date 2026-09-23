@@ -1,0 +1,38 @@
+.markdown-prosemirror [data-type="emoji"],
+.markdown-emoji-glyph {
+	font-family:
+		"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+	white-space: nowrap;
+}
+
+.markdown-emoji-candidates {
+	background: var(--md-surface);
+	border: 1px solid var(--md-border);
+	border-radius: 8px;
+	box-shadow: 0 6px 24px #0002;
+	color: var(--md-foreground);
+	max-height: 240px;
+	max-width: min(360px, calc(100vw - 24px));
+	overflow: auto;
+	padding: 4px;
+	z-index: 50;
+}
+
+.markdown-emoji-candidates button {
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	color: inherit;
+	cursor: pointer;
+	display: block;
+	font-size: 14px;
+	padding: 5px 8px;
+	text-align: left;
+	white-space: nowrap;
+	width: 100%;
+}
+
+.markdown-emoji-candidates button[aria-selected="true"],
+.markdown-emoji-candidates button:hover {
+	background: var(--md-muted);
+}

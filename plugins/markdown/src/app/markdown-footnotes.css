@@ -1,0 +1,73 @@
+.markdown-prosemirror .footnote-definition {
+	font-size: 0.85em;
+	margin: 0.75em 0;
+	color: var(--md-muted-foreground);
+}
+
+.footnote-label,
+.footnote-backlink {
+	border: 0;
+	border-radius: 3px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	padding: 0 0.2em;
+	cursor: pointer;
+}
+
+.footnote-definition > .footnote-label {
+	font-weight: 600;
+	margin-right: 0.4em;
+}
+
+.footnote-reference > .footnote-label {
+	background: var(--md-muted);
+	line-height: 1.2;
+}
+
+.footnote-reference {
+	vertical-align: super;
+	font-size: 0.75em;
+	line-height: 0;
+}
+
+.footnote-label:focus-visible,
+.footnote-backlink:focus-visible {
+	outline: 2px solid var(--md-foreground);
+}
+
+.footnote-label-input {
+	font: inherit;
+	color: var(--md-foreground);
+	background: var(--md-background);
+	border: 1px solid var(--md-border);
+	width: 9em;
+	line-height: 1.5;
+}
+
+.footnote-label-input[aria-invalid="true"] {
+	border-color: #c44;
+}
+
+.footnote-backlink {
+	margin-left: 0.3em;
+	text-decoration: underline;
+}
+
+.footnote-preview {
+	position: fixed;
+	box-sizing: border-box;
+	z-index: 100;
+	max-width: min(880px, calc(100vw - 16px));
+	max-height: min(70vh, calc(100vh - 16px));
+	overflow: auto;
+	overscroll-behavior: contain;
+	overflow-wrap: anywhere;
+	padding: 8px 12px;
+	border: 1px solid var(--md-border);
+	border-radius: 6px;
+	background: var(--md-background);
+	color: var(--md-foreground);
+	font-size: 0.85em;
+	box-shadow: 0 2px 8px #0003;
+}
