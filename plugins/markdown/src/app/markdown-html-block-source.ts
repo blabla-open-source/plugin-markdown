@@ -82,6 +82,8 @@ export function readHtmlBlock(source: string) {
 		!hasHtmlAttribute(htmlMediaOpeningTag(source, "img"), "srcset")
 	)
 		return null;
+	// Preserve authored picture layouts, source-only containers, and legacy blocks.
+	// Marked does not classify them with a desktop editor's HTML block bounds.
 	if (
 		/^ {0,3}<(?:\/?(?:picture|left|right|bdo|select|object|applet|noscript|template|canvas)|img)(?:[\s/>]|$)/i.test(
 			source,

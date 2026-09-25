@@ -287,6 +287,8 @@ export class MarkdownSourceManager extends MarkdownManager {
 			if (node.type === "text")
 				return {
 					...node,
+					// Preserve editor-literal inline HTML before Tiptap escapes it. Bracket
+					// entities keep legacy math delimiters literal across mark boundaries.
 					text: protectInlineFormatLiterals(
 						protectInlineHtmlLiteralSource(
 							protectWordBreakSource(node.text ?? "", protect),

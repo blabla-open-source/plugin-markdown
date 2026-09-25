@@ -76,7 +76,7 @@ export function compatibleHeadingAnchor(text: string): string {
 		.replace(/㌾/gu, "-");
 }
 
-
+/** Accept existing desktop-editor heading links without adding their UI control text to our nodes. */
 function headingAnchorAliases(node: ProseMirrorNode): Set<string> {
 	return new Set(
 		(["plain", "shortcode", "content"] as const).map((form) => {

@@ -51,6 +51,7 @@ export function codeLanguageControl({
 	};
 	const draft = createMarkdownFieldDraft(editor, () => {
 		const language = input.value.trim();
+		// Info strings keep their spaces, as in desktop Markdown editors; fence markers remain guarded.
 		input.setCustomValidity(
 			/[\r\n`~]/.test(language)
 				? "Remove backticks and tildes from the code language."

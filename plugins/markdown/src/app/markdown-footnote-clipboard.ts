@@ -1,6 +1,6 @@
 import { isFootnoteLabel } from "./markdown-footnote-source";
 
-
+/** Map the desktop-editor clipboard envelope to the existing footnote schema. */
 export function normalizeFootnoteClipboard(html: string): string {
 	if (!html.includes("md-footnote") && !html.includes("md-def-footnote"))
 		return html;

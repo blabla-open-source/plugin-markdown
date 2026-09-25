@@ -34,6 +34,7 @@ const devWatchIgnored = [
 export default defineConfig({
 	build: {
 		outDir: "dist",
+		license: { fileName: "third-party-licenses.json" },
 		sourcemap: false,
 		target: "es2024",
 	},

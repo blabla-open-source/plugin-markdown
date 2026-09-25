@@ -9,7 +9,8 @@ export function normalizeReferenceLabel(label: string) {
 	return label.replace(/\s+/g, " ").toLowerCase();
 }
 
-
+/** Desktop Markdown editors support full/collapsed references, including unresolved ones.
+ * Marked still owns their parsing; bare brackets remain literal prose. */
 class ReferenceTokenizer extends Tokenizer {
 	override heading(source: string) {
 		const token = super.heading(source);

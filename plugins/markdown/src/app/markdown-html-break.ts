@@ -5,7 +5,7 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 const RAW_HTML_BREAK = /^<br\b(?:[^"'<>]|"[^"]*"|'[^']*')*>/i;
 const ACTIVE_HTML_BREAK = /<br\s*\/?>/gi;
 
-
+/** Keep raw BR editable while a decoration supplies the visible break desktop editors show. */
 export const MarkdownHtmlBreak = Mark.create({
 	name: "htmlBreak",
 	code: true,

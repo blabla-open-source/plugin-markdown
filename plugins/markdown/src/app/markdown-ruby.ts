@@ -5,7 +5,7 @@ import { inlineTagInputRule } from "./markdown-inline-tag-input";
 import type { MarkdownMediaSourceResolver } from "./markdown-media-source";
 import { rubyNodeView, rubyPreview } from "./markdown-ruby-view";
 
-
+/** Ruby groups and fallback text share one literal HTML source, as in desktop Markdown editors. */
 export const MarkdownRuby = (
 	openLink: HtmlBlockOpenLink,
 	resolver: MarkdownMediaSourceResolver,

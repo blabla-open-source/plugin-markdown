@@ -27,7 +27,7 @@ export function protectInlineHtmlLiteralSource(
 	return text.replace(literalHtml, (source) => protect(source));
 }
 
-
+/** Desktop Markdown editors keep these complete forms literal in ordinary prose. */
 export const MarkdownInlineHtmlLiteral = Extension.create({
 	name: "inlineHtmlLiteral",
 	markdownTokenizer: {

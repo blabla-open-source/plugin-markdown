@@ -24,6 +24,7 @@ export const MarkdownTocBlock = Node.create({
 	parseHTML() {
 		return [
 			{ tag: "nav[data-markdown-toc]" },
+			// Desktop Markdown editors copy the generated list, not its Markdown marker.
 			{ tag: 'div.md-toc[mdtype="toc"]' },
 		];
 	},

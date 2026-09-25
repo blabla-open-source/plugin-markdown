@@ -2,6 +2,8 @@ const OPENING = /^(\uFEFF?)---[\t ]*(?:\r\n|\n|\r)/u;
 const CLOSING = /(?:^|\r\n|\n|\r)(---|\.\.\.)[\t ]*(?=\r\n|\n|\r|$)/u;
 const LINE_BREAKS = /\r\n|\n|\r/gu;
 
+// A literal closing delimiter inside an edited block must not end the block
+// on reopen. Desktop Markdown editors also protect delimiter lines with a zero-width prefix.
 export function encodeFrontMatterText(text: string): string {
 	return text.replace(/^(\u200b*(?:---|\.\.\.)[\t ]*)$/gmu, "\u200b$1");
 }

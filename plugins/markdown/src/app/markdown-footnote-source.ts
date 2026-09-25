@@ -1,3 +1,5 @@
+// Definitions own one physical line, as in desktop Markdown editors. Indented following lines
+// remain ordinary Markdown, not an implicitly enlarged footnote document.
 export const FOOTNOTE_DEFINITION =
 	/^ {0,3}\[\^([^\]\r\n]+)\]:[\t ]*([^\r\n]*)(?:\r\n|\n|\r|$)/d;
 export const FOOTNOTE_REFERENCE = /^\[\^([^\]\r\n]+)\]/;

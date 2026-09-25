@@ -1,6 +1,6 @@
 import { ALERT_TYPES } from "./markdown-alert-types";
 
-
+/** Normalize the desktop-editor clipboard envelope into our existing quote. */
 export function normalizeAlertClipboard(html: string, enabled = true): string {
 	if (!html.includes("md-alert") && (enabled || !html.includes("data-alert")))
 		return html;

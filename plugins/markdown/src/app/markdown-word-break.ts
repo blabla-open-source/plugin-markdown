@@ -12,7 +12,7 @@ export function protectWordBreakSource(
 	);
 }
 
-
+/** Desktop Markdown editors keep WBR literal in ordinary Markdown and render it only in HTML blocks. */
 export const MarkdownWordBreakLiteral = Extension.create({
 	name: "wordBreakLiteral",
 	markdownTokenizer: {

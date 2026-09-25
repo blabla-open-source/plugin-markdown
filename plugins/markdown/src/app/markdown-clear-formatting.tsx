@@ -10,6 +10,8 @@ export function clearFormatting(editor: Editor) {
 		.command(({ tr, commands }) => {
 			const selection = tr.selection;
 			closeHistory(tr);
+			// Desktop Markdown editors clear the text blocks touched by the selection, including a caret.
+			// Keep the original selection and reuse the official clearable-mark policy.
 			for (const { $from, $to } of selection.ranges) {
 				commands.setTextSelection({
 					from: $from.parent.isTextblock ? $from.start() : $from.pos,

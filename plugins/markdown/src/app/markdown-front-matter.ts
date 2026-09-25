@@ -118,6 +118,8 @@ export const MarkdownFrontMatter = Node.create({
 	},
 	renderMarkdown(node) {
 		const text = node.content?.map((child) => child.text ?? "").join("") ?? "";
+		// An empty YAML body still needs a line between the delimiters. Desktop
+		// editors read two adjacent `---` lines as two horizontal rules, not metadata.
 		return `${node.attrs?.bom ?? ""}---\n${encodeFrontMatterText(text)}\n${node.attrs?.closing ?? "---"}`;
 	},
 	addInputRules() {

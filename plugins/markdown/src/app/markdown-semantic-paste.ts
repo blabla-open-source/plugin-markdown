@@ -9,7 +9,8 @@ import { diagramEngine } from "./markdown-diagram-engine";
 import { readMarkdownFrontMatter } from "./markdown-front-matter-source";
 import { readMathBlock } from "./markdown-math-source";
 
-
+/** Desktop Markdown editors may put only generated TOC items in HTML while text/plain carries
+ * the complete Markdown document. Only this fragment is a non-source preview. */
 function nativeTocItems(html: string): boolean {
 	if (!html.includes("md-toc-item")) return false;
 	const template = document.createElement("template");

@@ -12,6 +12,7 @@ export function mountHtmlBlockMedia(
 		notice.className = "markdown-html-media-notice";
 		notice.setAttribute("role", "status");
 		media.after(notice);
+		// Audio gets controls, as in desktop Markdown editors; video keeps the author's controls attribute.
 		if (media instanceof HTMLAudioElement) media.controls = true;
 		media.autoplay = false;
 		media.preload = "metadata";
