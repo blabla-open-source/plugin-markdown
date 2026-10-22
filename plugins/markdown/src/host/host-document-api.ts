@@ -63,7 +63,27 @@ export type BlablaHostPreservationOutcome =
 			status: "blocked";
 	  };
 
+/** What a surface held still, and how the data covering it was kept. */
+export interface BlablaHostHeld {
+	persisted: "clean" | "recovered" | "saved";
+	revision: number;
+	status: "held";
+}
+
 export interface BlablaHostLifecycleApi<TContext, TDisposable> {
+	/**
+	 * A library switch asks the surface to hold still: stop accepting every
+	 * change, finish and persist what it accepted, and answer `held`. The
+	 * surface stays held until `release` for the same switch, or until the
+	 * Host destroys it. Requires `ready({ hold: true })`.
+	 */
+	onHold(handlers: {
+		hold(input: {
+			revision: number;
+			switchId?: string;
+		}): Promise<BlablaHostHeld | Extract<BlablaHostPreservationOutcome, { status: "blocked" }>>;
+		release(input: { switchId: string }): void;
+	}): TDisposable;
 	onPrepareDestroy(
 		handler: (input: {
 			action: "discard" | "preserve" | "save";
@@ -79,6 +99,7 @@ export interface BlablaHostLifecycleApi<TContext, TDisposable> {
 		}) => BlablaHostPreservationOutcome | Promise<BlablaHostPreservationOutcome>,
 	): TDisposable;
 	ready(input: {
+		hold?: boolean;
 		saveMode: "autosave" | "explicit";
 		title: string;
 	}): Promise<TContext>;

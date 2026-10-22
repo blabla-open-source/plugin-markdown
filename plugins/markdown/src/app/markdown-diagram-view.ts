@@ -13,6 +13,9 @@ import {
 } from "./markdown-diagram-image";
 import type { BlablaHostBridge } from "../host/host-api";
 
+// How long typing may pause on invalid source before the preview reports it.
+const INVALID_DELAY = 700;
+
 export function exitDiagramCode(editor: Editor) {
 	const { $from, $to } = editor.state.selection;
 	if (!diagramEngine($from.parent.attrs.language) || !$from.sameParent($to))
@@ -80,6 +83,8 @@ export const diagramNodeView = (
 	let renderedSvg: string | undefined;
 	let actionRunning = false;
 	let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
+	let invalidTimer: ReturnType<typeof setTimeout> | undefined;
+	let showInvalid: (() => void) | undefined;
 	const closeMenu = () => {
 		menu.hidden = true;
 	};
@@ -198,13 +203,18 @@ export const diagramNodeView = (
 						items.length;
 		items[target]?.focus();
 	};
-	const selectionChanged = () => {
+	const sourceEditing = () => {
 		const position = getPos();
 		const { from, to } = editor.state.selection;
-		const editing =
+		return (
 			position !== undefined &&
 			from > position &&
-			to < position + node.nodeSize;
+			to < position + node.nodeSize
+		);
+	};
+	const selectionChanged = () => {
+		const editing = sourceEditing();
+		if (!editing) showInvalid?.();
 		pre.hidden = !editing && !invalid;
 		language.dom.hidden = !editing;
 		toolbar.dom.hidden = !editing || !editor.isEditable;
@@ -229,6 +239,8 @@ export const diagramNodeView = (
 		lastSequenceTheme = sequenceTheme;
 		renderedSvg = undefined;
 		clearTimeout(feedbackTimer);
+		clearTimeout(invalidTimer);
+		showInvalid = undefined;
 		feedback.textContent = "";
 		const request = ++version;
 		invalid = false;
@@ -253,36 +265,49 @@ export const diagramNodeView = (
 			dark,
 			(result) => {
 				if (destroyed || request !== version) return;
-				if (url) URL.revokeObjectURL(url);
-				url = undefined;
-				invalid = !result.svg;
-				preview.setAttribute("aria-busy", "false");
-				picture.hidden = invalid;
-				status.hidden = !invalid;
-				if (result.svg) {
-					renderedSvg = result.svg;
-					url = URL.createObjectURL(
-						new Blob([result.svg], { type: "image/svg+xml" }),
-					);
-					picture.onerror = () => {
-						if (destroyed || request !== version) return;
-						invalid = true;
-						picture.hidden = true;
-						status.hidden = false;
-						status.textContent =
-							"Invalid diagram — the rendered image could not be displayed.";
-						selectionChanged();
+				// Half-typed source is briefly invalid: keep the last preview until typing pauses.
+				if (!result.svg && sourceEditing()) {
+					showInvalid = () => {
+						clearTimeout(invalidTimer);
+						showInvalid = undefined;
+						show(result);
 					};
-					picture.src = url;
-					picture.hidden = false;
-					status.hidden = true;
-				} else {
-					status.textContent = `Invalid diagram — ${result.error ?? "edit source to correct it."}`;
+					invalidTimer = setTimeout(showInvalid, INVALID_DELAY);
+					return;
 				}
-				selectionChanged();
+				show(result);
 			},
 			sequenceTheme,
 		);
+		function show(result: { svg?: string; error?: string }) {
+			if (url) URL.revokeObjectURL(url);
+			url = undefined;
+			invalid = !result.svg;
+			preview.setAttribute("aria-busy", "false");
+			picture.hidden = invalid;
+			status.hidden = !invalid;
+			if (result.svg) {
+				renderedSvg = result.svg;
+				url = URL.createObjectURL(
+					new Blob([result.svg], { type: "image/svg+xml" }),
+				);
+				picture.onerror = () => {
+					if (destroyed || request !== version) return;
+					invalid = true;
+					picture.hidden = true;
+					status.hidden = false;
+					status.textContent =
+						"Invalid diagram — the rendered image could not be displayed.";
+					selectionChanged();
+				};
+				picture.src = url;
+				picture.hidden = false;
+				status.hidden = true;
+			} else {
+				status.textContent = `Invalid diagram — ${result.error ?? "edit source to correct it."}`;
+			}
+			selectionChanged();
+		}
 	};
 	preview.addEventListener("click", () => {
 		const position = getPos();
@@ -348,6 +373,7 @@ export const diagramNodeView = (
 		stopEvent: () => true,
 		destroy() {
 			clearTimeout(feedbackTimer);
+			clearTimeout(invalidTimer);
 			destroyed = true;
 			code.destroy();
 			language.destroy();

@@ -30,7 +30,7 @@ export function readHtmlMediaBlock(
 	);
 	if (!closing) return null;
 	const end = openingEnd + 1 + closing.index + closing[0].length;
-	if (source[end] && source[end] !== "\n" && source[end] !== "\r") return null;
+	// The element owns only its bytes; the lexer handles following same-line content.
 	return source.slice(0, end);
 }
 
@@ -80,21 +80,28 @@ export function serializeHtmlMediaElement(
 	return `<${tag} ${serialized.join(" ")}></${tag}>`;
 }
 
+/** Intrinsic size the Host recorded for a library file, when it knows one. */
+export type MarkdownMediaSize = { height: number; width: number };
+type MarkdownMediaListener = (
+	url: string | null,
+	size?: MarkdownMediaSize,
+) => void;
+
 export class MarkdownMediaSourceResolver {
-	private readonly cache = new Map<string, string>();
-	private readonly listeners = new Map<
+	private readonly cache = new Map<
 		string,
-		Set<(url: string | null) => void>
+		{ size?: MarkdownMediaSize; url: string }
 	>();
+	private readonly listeners = new Map<string, Set<MarkdownMediaListener>>();
 	private readonly pending = new Set<string>();
 	private scheduled = false;
+	// Library files whose size the Host is still preparing, by reference id.
+	private readonly awaitingSize = new Map<string, Set<string>>();
+	private sizeWatch: { dispose(): void } | null = null;
 
 	constructor(private readonly host: BlablaHostBridge) {}
 
-	subscribe(
-		source: string,
-		listener: (url: string | null) => void,
-	): () => void {
+	subscribe(source: string, listener: MarkdownMediaListener): () => void {
 		const direct = directMediaUrl(source);
 		if (direct !== undefined) {
 			listener(direct);
@@ -106,12 +113,55 @@ export class MarkdownMediaSourceResolver {
 			this.listeners.set(source, subscriptions);
 		}
 		subscriptions.add(listener);
-		if (this.cache.has(source)) listener(this.cache.get(source) ?? null);
-		else this.queue(source);
+		const cached = this.cache.get(source);
+		if (cached) listener(cached.url, cached.size);
+		// A prior unsubscribe may have stopped the watch before preparation finished.
+		if (!cached?.size) this.queue(source);
 		return () => {
 			subscriptions?.delete(listener);
-			if (subscriptions?.size === 0) this.listeners.delete(source);
+			if (subscriptions?.size === 0) {
+				this.listeners.delete(source);
+				this.stopAwaitingSize(source);
+			}
 		};
+	}
+
+	// A freshly imported file resolves before its size is known; deliver the
+	// size when the Host finishes preparing it, then stop listening.
+	private awaitSize(file: string, referenceId: string): void {
+		const files = this.awaitingSize.get(referenceId) ?? new Set();
+		files.add(file);
+		this.awaitingSize.set(referenceId, files);
+		this.sizeWatch ??= this.host.fileReferences.onChanged((event) => {
+			for (const reference of event.references) {
+				const waiting = this.awaitingSize.get(reference.id);
+				if (!(waiting && reference.width && reference.height)) continue;
+				const size = { height: reference.height, width: reference.width };
+				this.awaitingSize.delete(reference.id);
+				for (const source of waiting) {
+					const cached = this.cache.get(source);
+					if (!cached) continue;
+					cached.size = size;
+					for (const listener of this.listeners.get(source) ?? [])
+						listener(cached.url, size);
+				}
+			}
+			this.releaseSizeWatch();
+		});
+	}
+
+	private stopAwaitingSize(file: string): void {
+		for (const [referenceId, files] of this.awaitingSize) {
+			files.delete(file);
+			if (files.size === 0) this.awaitingSize.delete(referenceId);
+		}
+		this.releaseSizeWatch();
+	}
+
+	private releaseSizeWatch(): void {
+		if (this.awaitingSize.size > 0) return;
+		this.sizeWatch?.dispose();
+		this.sizeWatch = null;
 	}
 
 	private queue(source: string): void {
@@ -126,21 +176,37 @@ export class MarkdownMediaSourceResolver {
 		const files = [...this.pending];
 		this.pending.clear();
 		if (files.length === 0) return;
-		let resolved = new Map<string, string | null>();
+		let resolved = new Map<
+			string,
+			{ referenceId: string; size?: MarkdownMediaSize; url: string | null }
+		>();
 		try {
 			resolved = new Map(
 				(await this.host.fileReferences.resolveDocumentFiles({ files })).map(
-					({ file, reference }) => [file, reference.sourceUrl],
+					({ file, reference }) => [
+						file,
+						{
+							referenceId: reference.id,
+							size:
+								reference.width && reference.height
+									? { height: reference.height, width: reference.width }
+									: undefined,
+							url: reference.sourceUrl,
+						},
+					],
 				),
 			);
 		} catch {
 			// An unavailable local source is UI state, not a document mutation.
 		}
 		for (const file of files) {
-			const url = resolved.get(file) ?? null;
+			const { referenceId, size, url = null } = resolved.get(file) ?? {};
 			// A missing file may become available before the next preview subscribes.
-			if (url) this.cache.set(file, url);
-			for (const listener of this.listeners.get(file) ?? []) listener(url);
+			if (url) this.cache.set(file, { size, url });
+			if (url && referenceId && !size && this.listeners.has(file))
+				this.awaitSize(file, referenceId);
+			for (const listener of this.listeners.get(file) ?? [])
+				listener(url, size);
 		}
 	}
 }

@@ -79,6 +79,15 @@ export function createMarkdownImage(resolver: MarkdownMediaSourceResolver) {
 				dom.className = "markdown-image";
 				const image = document.createElement("img");
 				image.loading = "lazy";
+				// A library size reserves the image's box before its lazy load, so
+				// long documents do not jump; the loaded image then sizes itself.
+				let reserved = false;
+				image.addEventListener("load", () => {
+					if (!reserved) return;
+					reserved = false;
+					image.removeAttribute("width");
+					image.removeAttribute("height");
+				});
 				const literal = document.createElement("span");
 				dom.append(image, literal);
 				const render = () => {
@@ -100,11 +109,20 @@ export function createMarkdownImage(resolver: MarkdownMediaSourceResolver) {
 						: "";
 					literal.hidden = !missing;
 					image.hidden = missing;
+					reserved = false;
+					const authored =
+						current.attrs.width != null || current.attrs.height != null;
 					dispose = resolver.subscribe(
 						String(current.attrs.src ?? ""),
-						(url) => {
-							if (url) image.src = url;
-							else image.removeAttribute("src");
+						(url, size) => {
+							const loaded = image.complete && image.naturalWidth > 0;
+							if (size && !authored && !loaded) {
+								reserved = true;
+								image.setAttribute("width", String(size.width));
+								image.setAttribute("height", String(size.height));
+							}
+							if (!url) image.removeAttribute("src");
+							else if (image.getAttribute("src") !== url) image.src = url;
 						},
 					);
 				};

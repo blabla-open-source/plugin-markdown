@@ -1,5 +1,5 @@
 import { createMarkdownSourceHistoryPlugin, markdownSourceHistoryKey, retryMarkdownSourceHistory } from "./markdown-source-history";
-import type { Transaction } from "@tiptap/pm/state";
+import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
@@ -28,7 +28,10 @@ import {
 } from "./markdown-save-policy";
 import { MARKDOWN_FIELD_DRAFT_CHANGED, commitMarkdownFieldDrafts, hasMarkdownFieldDrafts, observeMarkdownComposition } from "./markdown-field-drafts";
 import { markdownTitleFromFileName } from "./markdown-title";
+import { MarkdownHoldState } from "./markdown-hold-state";
 import { MarkdownSourceManager } from "./markdown-source-manager";
+
+const markdownHoldKey = new PluginKey("markdownHold");
 
 interface MarkdownSourceWriteGate {
 	beforeSourceTextWrite(): Promise<void>;
@@ -46,6 +49,8 @@ interface UseMarkdownSourceControllerInput {
 declare global {
 	interface Window {
 		__blablaMarkdownEditor?: Editor;
+		/** E2E: runs after a hold persisted, before the surface reports it held. */
+		__blablaMarkdownHoldGate?: { beforeHeld(): Promise<void> };
 		__blablaMarkdownSaveSettled?: () => Promise<MarkdownSaveResult | null>;
 		__blablaMarkdownSourceWriteGate?: MarkdownSourceWriteGate;
 	}
@@ -77,6 +82,10 @@ export function useMarkdownSourceController({
 		"backup-failed" | "save-failed" | null
 	>(null);
 	const applyingExternalContentRef = useRef(false);
+	// The library switch this surface is held for; while held, it accepts no
+	// change (see MarkdownHoldState).
+	const holdStateRef = useRef(new MarkdownHoldState());
+	const heldDiskDocumentRef = useRef<BlablaHostSourceTextDocument | null>(null);
 	const contentRevisionRef = useRef(openingStateRef.current.revision);
 	const currentContentRef = useRef(openingStateRef.current.content);
 	const dirtyRef = useRef(openingStateRef.current.dirty);
@@ -263,6 +272,11 @@ export function useMarkdownSourceController({
 
 	const applySourceTextDocument = useCallback(
 		async (nextDocument: BlablaHostSourceTextDocument): Promise<number> => {
+			// A held surface applies the newest disk document once released.
+			if (holdStateRef.current.active) {
+				heldDiskDocumentRef.current = nextDocument;
+				return contentRevisionRef.current;
+			}
 			if (
 				!editor ||
 				(!dirtyRef.current &&
@@ -455,6 +469,68 @@ export function useMarkdownSourceController({
 	}, [applySourceTextDocument, conflict]);
 
 	useEffect(() => {
+		if (!editor) return;
+		editor.registerPlugin(new Plugin({
+			key: markdownHoldKey,
+			filterTransaction: (transaction) =>
+				holdStateRef.current.accepts({
+					docChanged: transaction.docChanged,
+					fieldDraftChanged: Boolean(transaction.getMeta(MARKDOWN_FIELD_DRAFT_CHANGED)),
+				}),
+		}));
+		return () => {
+			if (!editor.isDestroyed) editor.unregisterPlugin(markdownHoldKey);
+		};
+	}, [editor]);
+
+	const releaseHold = useCallback(
+		({ switchId }: { switchId: string }) => {
+			if (!holdStateRef.current.release(switchId)) return;
+			editor?.setEditable(true);
+			const diskDocument = heldDiskDocumentRef.current;
+			heldDiskDocumentRef.current = null;
+			if (diskDocument) void applySourceTextDocument(diskDocument).catch(() => undefined);
+		},
+		[applySourceTextDocument, editor],
+	);
+
+	// Edits keep landing until the editor freezes, so field drafts are committed
+	// first; drafts left once frozen block the hold. A hold the Host released
+	// before it froze leaves the editor alone (see MarkdownHoldState).
+	const holdForSwitch = useCallback(
+		async ({ revision, switchId }: { revision: number; switchId?: string }) => {
+			const blocked = { failure: "save-failed" as const, revision, status: "blocked" as const };
+			if (!(editor && switchId)) return blocked;
+			const state = holdStateRef.current;
+			try {
+				const committed = await commitMarkdownFieldDrafts(editor);
+				if (MARKDOWN_E2E_TEST_HOOKS_ENABLED) await window.__blablaMarkdownHoldGate?.beforeHeld();
+				if (!state.freeze(switchId)) return blocked;
+				editor.setEditable(false);
+				const result = committed && !hasMarkdownFieldDrafts(editor)
+					? await prepareMarkdownDestroy(saveDraft)
+					: blocked;
+				if (!state.holds(switchId)) return blocked;
+				if (result.status === "blocked") {
+					releaseHold({ switchId });
+					return result;
+				}
+				return { persisted: result.status, revision: contentRevisionRef.current, status: "held" as const };
+			} catch {
+				if (state.holds(switchId)) releaseHold({ switchId });
+				return blocked;
+			}
+		},
+		[editor, releaseHold, saveDraft],
+	);
+
+	useEffect(() => {
+		if (!editor) return;
+		const hold = host.lifecycle.onHold({ hold: holdForSwitch, release: releaseHold });
+		return () => hold.dispose();
+	}, [editor, holdForSwitch, host, releaseHold]);
+
+	useEffect(() => {
 		if (!editor) {
 			return;
 		}
@@ -477,6 +553,7 @@ export function useMarkdownSourceController({
 		});
 		if (!readyPromiseRef.current) {
             const ready = host.lifecycle.ready({
+                hold: true,
                 saveMode: "autosave",
                 title: document.title,
             }).then(() => undefined);

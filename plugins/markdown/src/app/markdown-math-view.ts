@@ -5,6 +5,9 @@ import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import katex from "katex";
 import { mathCodeEditor } from "./markdown-math-code-editor";
 
+// How long typing may pause on invalid source before the preview reports it.
+const INVALID_DELAY = 700;
+
 /** Official math nodes keep one LaTeX value; the input writes it immediately. */
 export const mathNodeView: NodeViewRenderer = (props) => {
 	const { node: initial, editor, getPos } = props;
@@ -56,26 +59,39 @@ export const mathNodeView: NodeViewRenderer = (props) => {
 	toolbar.dom.insertBefore(more, done);
 	controls.append(toolbar.dom, source);
 	dom.append(controls, preview, error);
+	let invalidTimer: ReturnType<typeof setTimeout> | undefined;
+	const showInvalid = (latex: string) => {
+		clearTimeout(invalidTimer);
+		invalidTimer = undefined;
+		preview.textContent = latex;
+		error.textContent = "Invalid formula — edit source to correct it.";
+		error.hidden = false;
+	};
 	const render = () => {
 		const latex: string = node.attrs.latex ?? "";
 		dom.dataset.latex = latex;
 		if (code) code.update(node);
 		else if (input.value !== latex) input.value = latex;
+		clearTimeout(invalidTimer);
+		invalidTimer = undefined;
 		error.hidden = true;
 		if (!latex) {
 			preview.textContent = "Empty formula";
 			return;
 		}
 		try {
-			katex.render(latex, preview, {
+			// KaTeX empties its target before parsing; render aside so a failure keeps the preview.
+			const rendered = document.createElement("span");
+			katex.render(latex, rendered, {
 				displayMode: block,
 				throwOnError: true,
 				trust: false,
 			});
+			preview.replaceChildren(...rendered.childNodes);
 		} catch {
-			preview.textContent = latex;
-			error.textContent = "Invalid formula — edit source to correct it.";
-			error.hidden = false;
+			// Half-typed source is briefly invalid: keep the last preview until typing pauses.
+			if (!source.contains(document.activeElement)) showInvalid(latex);
+			else invalidTimer = setTimeout(() => showInvalid(latex), INVALID_DELAY);
 		}
 	};
 	const leave = (direction = 1, deleting = false) => {
@@ -203,10 +219,17 @@ export const mathNodeView: NodeViewRenderer = (props) => {
 			controls.hidden = true;
 			more.open = false;
 			dom.classList.remove("ProseMirror-selectednode");
+			// Re-rendering the node deselects and reselects it; report only a real exit.
+			queueMicrotask(() => {
+				if (controls.hidden && invalidTimer !== undefined) render();
+			});
 		},
 		stopEvent: (event) =>
 			event.target instanceof globalThis.Node && dom.contains(event.target),
 		ignoreMutation: () => true,
-		destroy: () => code?.destroy(),
+		destroy: () => {
+			clearTimeout(invalidTimer);
+			code?.destroy();
+		},
 	};
 };

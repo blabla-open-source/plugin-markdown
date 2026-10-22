@@ -18,6 +18,15 @@
 	overflow-x: auto;
 	padding: 0.1em 0.2em;
 }
+/* A block formula spans the line, so an equation \tag sits at the right edge. */
+div.markdown-math > .markdown-math-preview {
+	display: block;
+	width: 100%;
+}
+/* Inline formulas sit in running text: side padding would gap the punctuation. */
+span.markdown-math > .markdown-math-preview {
+	padding-inline: 0;
+}
 .markdown-math-controls:not([hidden]) {
 
 	display: block;

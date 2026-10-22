@@ -2,8 +2,8 @@
   "apiVersion": 1,
   "id": "markdown",
   "name": "markdown",
-  "version": "0.1.3",
-  "minAppVersion": "0.1.16",
+  "version": "0.1.4",
+  "minAppVersion": "0.1.21",
   "description": "Blabla Markdown editor plugin backed by host-owned source text documents.",
   "author": {
     "name": "Blabla"
