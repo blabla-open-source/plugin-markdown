@@ -1,4 +1,4 @@
-declare module "virtual:zenuml-runtime" {
+declare module "virtual:pele-runtime" {
 	const script: string;
 	export default script;
 }

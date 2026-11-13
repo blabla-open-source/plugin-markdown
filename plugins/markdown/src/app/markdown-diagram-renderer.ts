@@ -1,13 +1,13 @@
 import { type DiagramEngine, diagramLabels } from "./markdown-diagram-engine";
 import { startFlowchartSandbox } from "./markdown-flowchart-sandbox";
-import { startMermaidSandbox } from "./markdown-mermaid-sandbox";
+import { startPeleSandbox } from "./markdown-pele-sandbox";
 import type { SequenceTheme } from "./markdown-preferences";
 import { startSequenceSandbox } from "./markdown-sequence-sandbox";
 
 const engines = {
 	mermaid: {
-		load: () => import("mermaid/dist/mermaid.min.js?raw"),
-		start: startMermaidSandbox,
+		load: () => import("virtual:pele-runtime"),
+		start: startPeleSandbox,
 	},
 	flowchart: {
 		load: () => import("virtual:flowchart-runtime"),
@@ -74,23 +74,6 @@ function createDiagramRenderer(engine: DiagramEngine) {
 		});
 	};
 	channel.port1.onmessage = ({ data }) => {
-		// Only Mermaid's known offline extension can request another script.
-		// Keep the active render deadline running while its bundle loads.
-		if (engine === "mermaid" && data.load === "zenuml") {
-			void import("virtual:zenuml-runtime")
-				.then(({ default: script }) => {
-					if (!disposed && !failure)
-						channel.port1.postMessage({ extension: "zenuml", script });
-				})
-				.catch(() => {
-					if (!disposed && !failure)
-						channel.port1.postMessage({
-							extension: "zenuml",
-							error: "ZenUML could not load. Reopen this document to retry.",
-						});
-				});
-			return;
-		}
 		clearTimeout(deadline);
 		if (data.ready) ready = true;
 		else if (active && data.id === active.id) {

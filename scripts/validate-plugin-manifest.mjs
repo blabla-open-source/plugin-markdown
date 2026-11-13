@@ -8,6 +8,10 @@ import {
   validatePluginInterface,
   validateSurface,
 } from "./plugin-manifest-ui-validators.mjs";
+import {
+  validateBundleProviders,
+  validateDerivativeProvider,
+} from "./plugin-manifest-provider-validators.mjs";
 import { validateDropProvider } from "./plugin-manifest-drop-provider-validator.mjs";
 import { validatePluginVersionsFile } from "./plugin-version-contract.mjs";
 
@@ -158,6 +162,14 @@ function validateManifestPath(inputPath) {
       }
     }
 
+    if (hasOwn(contributes, "bundleProviders")) {
+      validateBundleProviders(
+        contributes.bundleProviders,
+        backgroundServiceIds,
+        errors,
+      );
+    }
+
     if (hasOwn(contributes, "derivativeProviders")) {
       if (!Array.isArray(contributes.derivativeProviders)) {
         errors.push("contributes.derivativeProviders must be an array");
@@ -256,67 +268,6 @@ function validateBackgroundService(service, index, errors) {
     errors.push(
       `${prefix}.idleTtlMs must be an integer between 0 and ${MAX_BACKGROUND_IDLE_TTL_MS}`,
     );
-  }
-}
-
-function validateDerivativeProvider(provider, index, backgroundServiceIds, errors) {
-  const prefix = `contributes.derivativeProviders[${index}]`;
-  if (!isRecord(provider)) {
-    errors.push(`${prefix} must be an object`);
-    return;
-  }
-
-  for (const key of ["id", "serviceId"]) {
-    if (typeof provider[key] !== "string" || provider[key] === "") {
-      errors.push(`${prefix}.${key} must be a non-empty string`);
-    }
-  }
-
-  if (
-    nonEmptyString(provider.serviceId) &&
-    !backgroundServiceIds.has(provider.serviceId.trim())
-  ) {
-    errors.push(`${prefix}.serviceId must reference a background service`);
-  }
-
-  if (!nonEmptyArray(provider.roles)) {
-    errors.push(`${prefix}.roles must be a non-empty array`);
-  } else {
-    for (const role of provider.roles) {
-      if (!(role === "preview" || role === "thumbnail")) {
-        errors.push(`${prefix}.roles must contain only preview or thumbnail`);
-      }
-    }
-  }
-
-  if (provider.input !== "sourceText") {
-    errors.push(`${prefix}.input must be "sourceText"`);
-  }
-
-  if (hasOwn(provider, "mimeTypes") && !Array.isArray(provider.mimeTypes)) {
-    errors.push(`${prefix}.mimeTypes must be an array when present`);
-  }
-
-  if (hasOwn(provider, "extensions") && !Array.isArray(provider.extensions)) {
-    errors.push(`${prefix}.extensions must be an array when present`);
-  }
-
-  if (typeof provider.outputMime !== "string" || provider.outputMime === "") {
-    errors.push(`${prefix}.outputMime must be a non-empty string`);
-  }
-
-  if (
-    hasOwn(provider, "timeoutMs") &&
-    (!Number.isInteger(provider.timeoutMs) || provider.timeoutMs <= 0)
-  ) {
-    errors.push(`${prefix}.timeoutMs must be a positive integer when present`);
-  }
-
-  if (
-    hasOwn(provider, "priority") &&
-    (!Number.isInteger(provider.priority) || provider.priority < 0)
-  ) {
-    errors.push(`${prefix}.priority must be a non-negative integer when present`);
   }
 }
 

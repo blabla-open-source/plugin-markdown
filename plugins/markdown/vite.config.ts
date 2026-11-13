@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { flowchartRuntime } from "./scripts/flowchart-runtime";
 import { sequenceRuntime } from "./scripts/sequence-runtime";
-import { zenumlRuntime } from "./scripts/zenuml-runtime";
+import { peleRuntime } from "./scripts/pele-runtime";
 
 const port = Number.parseInt(process.env.BLABLA_MARKDOWN_PORT ?? "43219", 10);
 const devWatchIgnored = [
@@ -38,7 +38,7 @@ export default defineConfig({
 		sourcemap: false,
 		target: "es2024",
 	},
-	plugins: [react(), flowchartRuntime(), sequenceRuntime(), zenumlRuntime()],
+	plugins: [react(), flowchartRuntime(), sequenceRuntime(), peleRuntime()],
 	resolve: {
 		alias: {
 			"@": path.resolve(__dirname, "src"),
