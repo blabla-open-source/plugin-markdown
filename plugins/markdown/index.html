@@ -4,9 +4,35 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Blabla Markdown</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { margin: 0; }
+      .markdown-startup {
+        box-sizing: border-box;
+        min-height: 100vh;
+        padding: 76px max(24px, calc((100vw - 760px) / 2));
+        background: light-dark(#f8fafc, #18181b);
+        color: light-dark(#16181d, #f4f4f5);
+        font: 15px/1.5 system-ui, sans-serif;
+        overflow-wrap: anywhere;
+      }
+      .markdown-startup h1 { font-size: 18px; }
+      .markdown-startup-skeleton { display: grid; gap: 18px; }
+      .markdown-startup-skeleton span {
+        height: 12px;
+        border-radius: 4px;
+        background: light-dark(#e5e7eb, #303036);
+      }
+      .markdown-startup-skeleton span:first-child { width: 38%; height: 24px; margin-bottom: 22px; }
+      .markdown-startup-skeleton span:last-child { width: 68%; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main class="markdown-startup" data-markdown-startup="" aria-label="Loading Markdown" aria-busy="true">
+        <div class="markdown-startup-skeleton" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

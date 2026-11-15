@@ -119,18 +119,10 @@ input {
 	--tt-toolbar-height: 44px;
 }
 
-.markdown-shell,
 .markdown-app {
 	color: var(--md-foreground);
 	height: 100vh;
 	width: 100vw;
-}
-
-.markdown-shell {
-	align-items: center;
-	display: flex;
-	justify-content: center;
-	padding: 24px;
 }
 
 .markdown-app {

@@ -1,5 +1,6 @@
 import { Lexer, type Links, Marked, type marked, Tokenizer } from "marked";
-import { trackMarkdownLexicalSource } from "./markdown-lexical-source";
+import { markdownLexicalSource, trackMarkdownLexicalSource, type MarkdownLexicalSource } from "./markdown-lexical-source";
+import { tokenizeTabList } from "./markdown-tab-list";
 
 export const definitionPrefix = /^ {0,3}\[([^\]\r\n]+)\]:[ \t]*/;
 export const validReferenceLabel = (value: string) =>
@@ -12,6 +13,10 @@ export function normalizeReferenceLabel(label: string) {
 /** Desktop Markdown editors support full/collapsed references, including unresolved ones.
  * Marked still owns their parsing; bare brackets remain literal prose. */
 class ReferenceTokenizer extends Tokenizer {
+	constructor(readonly lexical: MarkdownLexicalSource) { super(); }
+	override list(source: string) {
+		return tokenizeTabList(source, this, this.lexical) ?? super.list(source);
+	}
 	override heading(source: string) {
 		const token = super.heading(source);
 		// Block separators belong to the space token, where the editor counts
@@ -63,6 +68,8 @@ class TolerantBlockTokenizer extends ReferenceTokenizer {
 
 	override list(source: string) {
 		if (!this.rules.block.list.test(source)) return undefined;
+		const tabList = tokenizeTabList(source, this, this.lexical);
+		if (tabList) return tabList;
 		const tokenizer = new Tokenizer({ ...this.options, pedantic: true });
 		tokenizer.rules = this.rules;
 		tokenizer.lexer = this.lexer;
@@ -80,12 +87,12 @@ class TolerantBlockTokenizer extends ReferenceTokenizer {
 
 export function markdownGrammar(strictMode = true) {
 	const instance = new Marked();
-	instance.setOptions({ tokenizer: new ReferenceTokenizer() });
-	if (!strictMode)
-		instance.setOptions({ tokenizer: new TolerantBlockTokenizer() });
 	// Tiptap types its injectable instance as the callable namespace, but uses
 	// the documented Marked instance methods (Lexer, defaults, use and setOptions).
-	return trackMarkdownLexicalSource(instance as unknown as typeof marked);
+	const tracked = trackMarkdownLexicalSource(instance as unknown as typeof marked);
+	const lexical = markdownLexicalSource(tracked);
+	instance.setOptions({ tokenizer: strictMode ? new ReferenceTokenizer(lexical) : new TolerantBlockTokenizer(lexical) });
+	return tracked;
 }
 
 /** Block-start hints only interrupt the current paragraph. All our hints

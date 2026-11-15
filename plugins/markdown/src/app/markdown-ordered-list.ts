@@ -36,7 +36,7 @@ export function createMarkdownListItem(strictMode = true) {
 			const task = node.type === "taskItem";
 			const prefix = marker + " ".repeat(style?.gap ?? 1) + (task ? `[${node.attrs?.checked ? "x" : " "}] ` : "");
 			const minimum = strictMode && decimal ? prefix.length : 2;
-			const indent = style?.indent === "\t" ? "\t" : " ".repeat(Math.max(minimum, style?.indent?.length ?? 2));
+			const indent = style?.indent && /^\t+$/.test(style.indent) ? style.indent : " ".repeat(Math.max(minimum, style?.indent?.length ?? 2));
 			return renderNestedMarkdownContent(node, {
 				...helpers,
 				indent: (text) => indent + text,

@@ -289,6 +289,7 @@ export class MarkdownSourceManager extends MarkdownManager {
 					...node,
 					// Preserve editor-literal inline HTML before Tiptap escapes it. Bracket
 					// entities keep legacy math delimiters literal across mark boundaries.
+					// Markdown link labels retain their standard backslash bracket escapes.
 					text: protectInlineFormatLiterals(
 						protectInlineHtmlLiteralSource(
 							protectWordBreakSource(node.text ?? "", protect),
@@ -299,7 +300,7 @@ export class MarkdownSourceManager extends MarkdownManager {
 					)
 						.replace(/[[\]$]/g, (value, index: number, text: string) => {
 							if (value !== "$")
-								return protect(value === "[" ? "&#91;" : "&#93;");
+								return protect(link && !link.attrs?.htmlLink ? `\\${value}` : value === "[" ? "&#91;" : "&#93;");
 							const needsEscape =
 								this.dollarMath ||
 								text[index - 1] === "$" ||

@@ -1,31 +1,14 @@
 import { MarkdownLanguage } from "./markdown-tool-copy";
 import { type ReactNode, useEffect, useLayoutEffect, useState } from "react";
-import type {
-	BlablaHostBridge,
-	BlablaHostSettingsRecord,
-	BlablaHostSourceTextDocument,
-	BlablaHostSourceTextRecoveryDraft,
-	BlablaHostThemeState,
-} from "../host/host-api";
-import { MarkdownEditor } from "./markdown-editor";
+import type { BlablaHostThemeState } from "../host/host-api";
+import {
+	activateMarkdown,
+	type MarkdownActivationState,
+} from "./markdown-activation";
 
-type LoadState =
-	| {
-			error: string;
-			status: "error";
-	  }
-	| {
-			document: BlablaHostSourceTextDocument;
-			host: BlablaHostBridge;
-			recovery: BlablaHostSourceTextRecoveryDraft | null;
-			settings: BlablaHostSettingsRecord;
-			language: "zh-CN" | "en";
-			status: "ready";
-			theme: BlablaHostThemeState | null;
-	  }
-	| {
-			status: "loading";
-	  };
+type LoadState = MarkdownActivationState<
+	typeof import("./markdown-editor").MarkdownEditor
+>;
 
 type ThemeStyle = Record<`--${"md" | "tt"}-${string}`, string>;
 
@@ -33,7 +16,6 @@ export function MarkdownApp() {
 	const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
 
 	useEffect(() => {
-		let cancelled = false;
 		const host = window.blablaHost;
 		if (!host) {
 			setLoadState({
@@ -43,62 +25,39 @@ export function MarkdownApp() {
 			return;
 		}
 
-		Promise.all([
-			host.document.readSourceText(),
-			host.document.readSourceTextRecovery(),
-			host.appearance.getTheme(),
-			host.settings.get(),
-			host.context.get(),
-		])
-			.then(([document, recovery, theme, settings, context]) => {
-				if (!cancelled) {
-					setLoadState({
-						document,
-						host,
-						recovery,
-						settings,
-						language: context.language,
-						status: "ready",
-						theme,
-					});
-				}
-			})
-			.catch((error) => {
-				if (!cancelled) {
-					setLoadState({
-						error: error instanceof Error ? error.message : String(error),
-						status: "error",
-					});
-				}
-			});
+		const dispose = activateMarkdown(
+			host,
+			() => import("./markdown-editor"),
+			setLoadState,
+		);
 
 		const languageSubscription = host.events.on("language.changed", (event) => {
 			setLoadState((current) =>
-				current.status === "ready"
+				current.status === "mountable"
 					? { ...current, language: event.language }
 					: current,
 			);
 		});
 		const themeSubscription = host.events.on("theme.changed", (event) => {
 			setLoadState((current) =>
-				current.status === "ready"
+				current.status === "mountable"
 					? { ...current, theme: event.theme }
 					: current,
 			);
 		});
 
 		return () => {
-			cancelled = true;
+			dispose();
 			themeSubscription.dispose();
 			languageSubscription.dispose();
 		};
 	}, []);
 
 	useEffect(() => {
-		if (loadState.status === "ready")
+		if (loadState.status === "mountable")
 			globalThis.document.documentElement.lang = loadState.language;
 	}, [loadState]);
-	const theme = loadState.status === "ready" ? loadState.theme : null;
+	const theme = loadState.status === "mountable" ? loadState.theme : null;
 
 	useLayoutEffect(() => {
 		const root = globalThis.document.documentElement;
@@ -118,13 +77,14 @@ export function MarkdownApp() {
 	}, [theme]);
 
 	if (loadState.status === "loading") {
-		return <Shell>Loading</Shell>;
+		return <Shell />;
 	}
 
 	if (loadState.status === "error") {
 		return <Shell>{loadState.error}</Shell>;
 	}
 
+	const MarkdownEditor = loadState.Editor;
 	return (
 		<MarkdownLanguage value={loadState.language}>
 			<MarkdownEditor
@@ -138,8 +98,29 @@ export function MarkdownApp() {
 	);
 }
 
-function Shell({ children }: { children: ReactNode }) {
-	return <main className="markdown-shell">{children}</main>;
+function Shell({ children }: { children?: ReactNode }) {
+	if (children !== undefined)
+		return (
+			<main className="markdown-startup" role="alert">
+				<h1>Could not open Markdown</h1>
+				<p>{children}</p>
+			</main>
+		);
+	return (
+		<main
+			className="markdown-startup"
+			data-markdown-startup=""
+			aria-label="Loading Markdown"
+			aria-busy="true"
+		>
+			<div className="markdown-startup-skeleton" aria-hidden="true">
+				<span />
+				<span />
+				<span />
+				<span />
+			</div>
+		</main>
+	);
 }
 
 function themeVars(theme: BlablaHostThemeState | null): ThemeStyle | undefined {

@@ -1,3 +1,6 @@
+import "katex/dist/katex.min.css";
+import "../official-tiptap.scss";
+import "../styles.css";
 import { EmojiSuggestionPluginKey } from "@tiptap/extension-emoji";
 import type { TableOfContentData } from "@tiptap/extension-table-of-contents";
 import { EditorContext, useEditor } from "@tiptap/react";

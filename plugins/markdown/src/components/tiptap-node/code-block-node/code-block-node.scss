@@ -32,6 +32,11 @@
 		padding: 0.1em 0.2em;
 	}
 
+	a code {
+		color: inherit;
+		text-decoration: inherit;
+	}
+
 	// Code blocks
 	pre {
 		background-color: var(--tt-codeblock-bg);

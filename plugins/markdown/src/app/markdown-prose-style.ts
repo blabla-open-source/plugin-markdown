@@ -69,7 +69,7 @@ export function parsedProseStyle(
 		gap: prefix?.[2]?.length ?? 1,
 		indent: nestedIndent ?? "  ",
 		fixed:
-			numbers.length > 1 && numbers.every((number) => number === numbers[0]),
+			type === "orderedList" && numbers.length > 1 && numbers.every((number) => number === numbers[0]),
 	};
 }
 

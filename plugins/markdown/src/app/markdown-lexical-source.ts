@@ -150,13 +150,14 @@ export class MarkdownLexicalSource {
 
 	/** Project only ranges covered by an observed parent-input transformation.
 	 * Unprojected ranges retain their actual frame identity for coverage audits. */
-	projectInput(range: MarkdownLexicalRange): MarkdownLexicalRange[] {
+	projectInput(range: MarkdownLexicalRange, target?: SourceFrame): MarkdownLexicalRange[] {
+		if (range.frame === target) return [range];
 		const input = this.frames.get(range.frame);
 		const projected = input && projectMarkdownInput(range, input);
 		if (!projected) return [range];
 		return projected.flatMap(parent => {
 			if (parent.frame === range.frame) throw new Error("Markdown input projects into itself.");
-			return this.projectInput(parent);
+			return this.projectInput(parent, target);
 		});
 	}
 
